@@ -96,7 +96,7 @@ function describe(S) {
     meters.slice(0, 3).forEach((m, i) => {
       const age = Math.max(0, (now - m.readAt) / 1000);
       rest.push({ text: `${m.approx ? '≈' : ''}${Math.round(m.pct)}% ${i === 0 ? 'used' : short[m.id] || ''}`.trim(), dot: kindUsed(m.pct),
-        title: `${m.label} — ${m.source === 'estimate' ? 'from your token budget' : age < 90 ? 'just now' : 'updated ' + fmtDur(age) + ' ago'}` });
+        title: `${m.label} — ${m.source === 'estimate' ? 'from your token budget' : m.approx && m.baseline != null ? 'live estimate; Claude said ' + Math.round(m.baseline) + '% ' + fmtDur(age) + ' ago' : age < 90 ? 'just now' : 'last Claude reading ' + fmtDur(age) + ' ago'}` });
     });
     rest.push({ text: `${fmtTokens(S.tokens.today)} today`, title: 'Tokens used today (Claude Code + Cowork)' });
     if (rest.length > 3) rest.splice(2, 1);          // keep the row to three pills: drop the third meter before the token count

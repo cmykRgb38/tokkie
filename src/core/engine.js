@@ -11,6 +11,7 @@ const { predict, planVerdict, finishTimestamp, PREV_WINDOW_MS } = require('./pre
 const { estimateTokens } = require('./tokens');
 const { readDesktopUsage, statMtime } = require('./desktopUsage');
 const { buildMeters } = require('./meters');
+const { tokensPer100, liveEstimate } = require('./calibrate');
 const { evolutionFor } = require('./evolution');
 const { headline } = require('./parser');
 
@@ -19,13 +20,14 @@ const { headline } = require('./parser');
  * Emits 'change' (data changed), 'turn-end' ({duration, tokens}) for live-finished turns.
  */
 class Engine extends EventEmitter {
-  constructor({ settings, now = Date.now, roots, env = process.env, home = os.homedir() } = {}) {
+  constructor({ settings, now = Date.now, roots, env = process.env, home = os.homedir(), desktopDirs } = {}) {
     super();
+    this.desktopDirs = desktopDirs;      // where the Claude desktop app keeps its data (tests override this)
     this.settings = settings; this.now = now; this.env = env; this.home = home;
     this.store = new Store({ now });
     this.limitsFile = path.join(tokkieHome(env, home), 'rate_limits.json');
     this.limitsMtime = 0; this.limits = null;
-    this.desktopMtime = -1; this.desktop = null; this.pending = [];   // pending = recent estimates, matched to the run they predicted
+    this.desktopMtime = -1; this.desktop = null; this.desktopK = {}; this.calibAt = 0; this.pending = [];   // pending = recent estimates, matched to the run they predicted
     this.loaded = false;
     this.tailer = new Tailer({ roots: roots || (() => transcriptRoots({ env, home })), onEvents: (evs) => this._onLive(evs), now });
     this.dirty = true;
@@ -47,6 +49,7 @@ class Engine extends EventEmitter {
     this.loaded = true;
     this._readLimits();
     this._readDesktop();
+    this._calibrate();                // the first scan has just finished: now the ledger can be compared with Claude's readings
     this._persistSamples();
     this.store.onSample = (s) => { this._attachEstimate(s); this._persistSamples(); this.emit('turn-end', { duration: s.duration, tokens: s.tokens }); };
     this.tailer.start();
@@ -79,9 +82,16 @@ class Engine extends EventEmitter {
   }
 
   _readDesktop() {
-    const m = statMtime();
+    const m = statMtime(this.desktopDirs);
     if (m === this.desktopMtime) return;
-    this.desktopMtime = m; this.desktop = readDesktopUsage(); this.emit('change');
+    this.desktopMtime = m; this.desktop = readDesktopUsage(this.desktopDirs); this._calibrate(); this.emit('change');
+  }
+
+  /** tokens-per-1% for each window, from Claude's own reading history vs what we saw in between (cheap; redone when the file changes). */
+  _calibrate() {
+    const d = this.desktop, now = this.now();
+    this.desktopK = d && d.series ? { five: tokensPer100(d.series.five, this.store, now), seven: tokensPer100(d.series.seven, this.store, now), extra: tokensPer100(d.series.extra, this.store, now) } : {};
+    this.calibAt = now;
   }
 
   /** Current plan-limit view incl. live extrapolation; persists calibration so it survives restarts. */
@@ -124,7 +134,9 @@ class Engine extends EventEmitter {
     const budget = this.settings.get('fallbackBudget5h') || 0;
     const fallback = !lim.connected && budget > 0 ? { budget, usedPct: Math.min(100, (t.last5h.weighted / budget) * 100) } : null;
     const active = this.store.activeTurn(now);
-    const meters = buildMeters({ statusline: lim, desktop: this.desktop, fallback, now });
+    if (now - this.calibAt > 600e3) this._calibrate();
+    const live = (id, reading) => liveEstimate(reading, this.desktopK[id], this.store, now);
+    const meters = buildMeters({ statusline: lim, desktop: this.desktop, fallback, now, live });
     const eta = active ? predict(this.store.samples, '', active.chars, { prev: active.prev || 0, hint: active.hint }).duration : null;
     return {
       now, loaded: this.loaded, eta,

@@ -19,6 +19,9 @@
 - **Accent colour = pet's OKLCH hue**; neutrals tinted blue-violet; light/dark follow OS.
 - npm 11 skips Electron's postinstall → `scripts/ensure-electron.js` runs before start/dist.
 
+## Usage % accuracy (important)
+Claude's `plan-usage-history.json` is only written occasionally (hours apart), so Tokkie never shows it raw as "now". `core/calibrate.js` derives *tokens per 1%* from consecutive readings vs tokens seen in between, then shows `last reading + tokens since / k` (labelled "live estimate · Claude said X% Nh ago"). Validated on real data: 21.4% (5 h old) → 34.2% vs Claude's page 34.9%. Enterprise accounts see a *spend limit* (dollars; the `xu` key = % of it); cost-state records in transcripts are only flushed at session end so they can't bridge the gap. Claude Code's desktop Code tab never calls the status-line hook (no ~/.tokkie/rate_limits.json), so that path only helps terminal/IDE users.
+
 ## Evolution
 `core/evolution.js` (thresholds 0/2M/10M/40M headline tokens → Hatchling/Junior/Champion/Mega; chub level 0–2 inside a form) + `monster.evolveSpec(base, stage, fat)` (pure; Junior = the generated creature; Mega gets a crown). Engine counts tokens from `settings.evolution.start` (set on first run, so history isn't food) and banks pruned messages into `archived`. Renderer celebrates when `stage > stageSeen` (also on next launch if it grew while closed). QA: `TOKKIE_EVO_EATEN=<n>` forces a total; `window.__tokkie.previewForm(stage, fat)`; `dev/forms.html` contact sheet.
 

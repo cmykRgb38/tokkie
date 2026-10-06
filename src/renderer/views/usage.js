@@ -15,7 +15,10 @@ function meterNode(title) {
       val.textContent = `${m.approx ? '≈ ' : ''}${fmtPct(m.pct)}% used`;
       fill.style.width = clamp(m.pct, 0, 100) + '%'; bar.dataset.k = kindUsed(m.pct); bar.setAttribute('aria-valuenow', Math.round(m.pct));
       const age = Math.max(0, (now - m.readAt) / 1000);
-      const parts = [el('span', { text: m.source === 'estimate' ? 'from your token budget' : age < 90 ? 'just now' : `updated ${fmtDur(age)} ago` })];
+      const note = m.source === 'estimate' ? 'from your token budget'
+        : m.approx && m.baseline != null ? `live estimate · Claude said ${fmtPct(m.baseline)}% ${fmtDur(age)} ago`
+        : age < 90 ? 'just now' : `Claude's last reading ${fmtDur(age)} ago`;
+      const parts = [el('span', { text: note, title: m.approx ? 'Claude only saves a reading now and then. Tokkie adds what you have used since, calibrated against Claude’s earlier readings.' : '' })];
       if (m.resetsAt && m.resetsAt > now) parts.push(el('span', { text: `resets in ${fmtDur((m.resetsAt - now) / 1000)}` }));
       foot.replaceChildren(...parts);
     },

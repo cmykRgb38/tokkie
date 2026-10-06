@@ -71,3 +71,44 @@ test('estimate is paired with the run it predicted, and the run log reports both
   assert.equal(eng.recentRuns(1)[0].est, null);
   eng.stop(); fs.rmSync(dir, { recursive: true });
 });
+
+const { tokensPer100, liveEstimate } = require('../src/core/calibrate');
+const { Store } = require('../src/core/store');
+const { parseLine } = require('../src/core/parser');
+
+function ledger(entries) { // [{t, tokens}] → Store with output-token messages
+  const s = new Store({ now: () => NOW });
+  entries.forEach((e, i) => s.ingest(parseLine(A(e.t, 'c' + i, { i: 0, o: e.tokens, cw: 0, cr: 0 }))));
+  return s;
+}
+test('calibration: tokens-per-1% comes from Claude\'s consecutive readings, ignores resets and idle gaps', () => {
+  const H = 3600e3, t0 = NOW - 6 * H;
+  const store = ledger([{ t: t0 + 0.5 * H, tokens: 1000 }, { t: t0 + 1.5 * H, tokens: 2000 }, { t: t0 + 3.5 * H, tokens: 99999 }]);
+  const series = [{ t: t0, pct: 10 }, { t: t0 + H, pct: 11 }, { t: t0 + 2 * H, pct: 13 }, { t: t0 + 3 * H, pct: 2 } /* reset */, { t: t0 + 20 * H, pct: 50 } /* huge gap */];
+  const k = tokensPer100(series, store, NOW);
+  assert.ok(Math.abs(k - 100000) < 1, `k=${k}`);                                   // (1000+2000 tokens) / (1%+2%) = 1000 per 1%
+  assert.equal(tokensPer100([{ t: t0, pct: 10 }], store, NOW), null, 'one reading is not enough');
+  assert.equal(tokensPer100([{ t: t0, pct: 10 }, { t: t0 + H, pct: 10.1 }], store, NOW), null, 'tiny change is noise');
+});
+test('live estimate adds what was used since the reading, capped at 100', () => {
+  const store = ledger([{ t: NOW - 1000, tokens: 5000 }, { t: NOW - 9 * 3600e3, tokens: 777777 }]);
+  const est = liveEstimate({ pct: 20, t: NOW - 3600e3 }, 100000, store, NOW);          // 5000 tokens at 1000/1% → +5%
+  assert.ok(Math.abs(est.pct - 25) < 1e-6 && est.baseline === 20 && Math.abs(est.added - 5) < 1e-6);
+  assert.equal(liveEstimate({ pct: 99, t: NOW - 3600e3 }, 1000, store, NOW).pct, 100);
+  assert.equal(liveEstimate({ pct: 20, t: NOW }, null, store, NOW), null);
+});
+test('end to end: a stale Claude reading is bridged into a live, labelled estimate', async () => {
+  const dir = tmp(); const app = path.join(dir, 'ClaudeApp'); fs.mkdirSync(app); const proj = path.join(dir, 'projects', 'p'); fs.mkdirSync(proj, { recursive: true });
+  const H = 3600e3, t0 = NOW - 6 * H;
+  writeHist(app, [{ t: t0, org: 'A', u: { xu: 10 } }, { t: t0 + H, org: 'A', u: { xu: 12 } }, { t: t0 + 2 * H, org: 'A', u: { xu: 14 } }]);   // last reading 4 h ago
+  const mk = (t, id, o) => A(t, id, { i: 0, o, cw: 0, cr: 0 });
+  fs.writeFileSync(path.join(proj, 's.jsonl'), [mk(t0 + 0.5 * H, 'a', 20000), mk(t0 + 1.5 * H, 'b', 20000), mk(NOW - 3 * H, 'c', 20000), mk(NOW - 2 * H, 'd', 20000)].join('\n') + '\n');
+  const settings = new Settings(path.join(dir, 's.json'));
+  const eng = new Engine({ settings, env: { TOKKIE_HOME: path.join(dir, 'h') }, home: dir, desktopDirs: [app], roots: () => [{ dir: path.join(dir, 'projects'), source: 'code' }] });
+  await eng.start();
+  const m = eng.snapshot().meters.find((x) => x.id === 'extra');
+  assert.ok(m, 'extra meter present');
+  assert.equal(m.approx, true); assert.equal(m.baseline, 14);
+  assert.ok(Math.abs(m.pct - 18) < 0.05, `expected ~18% (14 + 2×20000 tokens at 10000/1%), got ${m.pct}`);   // 20000 tokens ≙ 2% each
+  eng.stop(); fs.rmSync(dir, { recursive: true });
+});

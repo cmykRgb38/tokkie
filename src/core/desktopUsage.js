@@ -27,7 +27,8 @@ function readDesktopUsage(dirs = desktopAppDirs()) {
       for (const s of mine) if (Number.isFinite(s.u[key]) && (!found || s.t > found.t)) found = { pct: s.u[key], t: s.t };
       return found && newest.t - found.t <= FRESH_WINDOW_MS ? found : null;
     };
-    const res = { t: newest.t, five: latest('fh'), seven: latest('sd'), extra: latest('xu') };
+    const seriesOf = (key) => mine.filter((s) => Number.isFinite(s.u[key])).map((s) => ({ t: s.t, pct: s.u[key] })).sort((a, b) => a.t - b.t);
+    const res = { t: newest.t, five: latest('fh'), seven: latest('sd'), extra: latest('xu'), series: { five: seriesOf('fh'), seven: seriesOf('sd'), extra: seriesOf('xu') } };
     if ((res.five || res.seven || res.extra) && (!best || res.t > best.t)) best = res;
   }
   return best;
