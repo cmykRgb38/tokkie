@@ -21,7 +21,7 @@ Download the installer for your computer from the project's **Releases** page (s
 |---|---|---|
 | **Mac, Apple chip** (M1/M2/M3/M4) | `Tokkie-…-mac-arm64.dmg` | Open the .dmg, drag **Tokkie** to *Applications*, then **right-click → Open** once (the app isn't Apple-notarised, so a plain double-click is blocked the first time). |
 | **Mac, Intel** | `Tokkie-…-mac-x64.dmg` | Same as above. |
-| **Windows 10/11** | `Tokkie-Setup-…-win-x64.exe` (installer) or `…portable…exe` (no install) | If SmartScreen says "Windows protected your PC": **More info → Run anyway** (the app isn't code-signed). |
+| **Windows 10/11** | `Tokkie-Setup-…-win-x64.exe` (installer) or `Tokkie-Portable-…-win-x64.exe` (no install) | If SmartScreen says "Windows protected your PC": **More info → Run anyway** (the app isn't code-signed). |
 
 No Node.js, no terminal. Tokkie lives in the menu bar / system tray (there's no Dock icon); click the pet to open it.
 

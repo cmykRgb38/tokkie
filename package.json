@@ -83,10 +83,14 @@
     "nsis": {
       "oneClick": true,
       "perMachine": false,
-      "deleteAppDataOnUninstall": false
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-Setup-${version}-${os}-${arch}.${ext}"
     },
     "dmg": {
       "title": "${productName} ${version}"
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}-${os}-${arch}.${ext}"
     }
   },
   "allowScripts": {
