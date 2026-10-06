@@ -87,7 +87,7 @@ class Tailer {
     this.busy = true;
     try {
       const out = [];
-      if (this.now() - this.lastDiscover > this.discoverMs) {
+      if (this.now() - this.lastDiscover >= this.discoverMs) {
         for (const { p, source } of this._discover()) this.files.set(p, { offset: 0, rest: Buffer.alloc(0), source });
       }
       for (const [p, state] of this.files) {
