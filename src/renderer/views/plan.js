@@ -1,0 +1,148 @@
+import { el, icon, fmtTokens, fmtDur, fmtRange, fmtTime, clamp, parseTime, labelForHHMM } from '../util.js';
+
+/** How did the estimate hold up? 'in' = inside the typical range, 'near' = inside the worst-case bound, else 'off'. */
+export function accuracy(actual, b) {
+  if (!b || !(actual > 0)) return null;
+  if (actual >= b.p25 && actual <= b.p75) return 'in';
+  if (actual >= b.p25 / 2 && actual <= b.p90) return 'near';
+  return 'off';
+}
+const ACC_TXT = { in: '✓ on target', near: '≈ close', off: '✗ off' };
+
+export function prettyKey(acc, platform) {
+  const mac = platform === 'darwin';
+  return acc.split('+').map((k) => ({ CommandOrControl: mac ? '⌘' : 'Ctrl', Command: '⌘', Control: mac ? '⌃' : 'Ctrl', Alt: mac ? '⌥' : 'Alt', Option: '⌥', Shift: mac ? '⇧' : 'Shift' }[k] || k)).join(mac ? '' : '+');
+}
+
+const TITLES = { go: ['good', 'Go for it'], tight: ['warn', 'Cutting it close'], stop: ['bad', 'Better wait'], over: ['bad', 'Past your finish time'] };
+
+export function planView(root, api) {
+  const finish = el('input', { class: 'input', type: 'text', inputmode: 'text', autocomplete: 'off', 'aria-label': 'Finish by', title: 'e.g. 6:30pm or 18:30', style: 'width:96px;text-align:center' });
+  const commitFinish = () => {
+    const v = parseTime(finish.value);
+    if (v) { api.setSettings({ finishBy: v }); finish.value = labelForHHMM(v); finish.removeAttribute('aria-invalid'); rerun(); }
+    else { finish.setAttribute('aria-invalid', 'true'); }
+  };
+  finish.addEventListener('change', commitFinish);
+  finish.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish.blur(); } });
+
+  const ta = el('textarea', { class: 'input', rows: 2, placeholder: 'Paste your prompt here…', 'aria-label': 'Prompt to estimate', spellcheck: 'false' });
+  const meta = el('span', { class: 'muted num' });
+  const clipBtn = el('button', { class: 'btn sm', type: 'button', title: 'Estimate whatever is on your clipboard', onclick: () => api.estimateClipboard() }, icon('clip'), 'Clipboard');
+  const out = el('div', { class: 'stack', 'aria-live': 'polite' });
+  ta.maxLength = 50000;
+
+  const runsBox = el('div', { class: 'runs' });
+  root.append(el('div', { class: 'stack' },
+    el('div', { class: 'row' }, el('label', { class: 'label', style: 'display:flex;align-items:center;gap:8px;white-space:nowrap' }, 'Done by', finish), clipBtn),
+    el('div', { style: 'display:grid;gap:6px' }, ta, meta),
+    out, runsBox));
+
+  let S = null, last = null, timer = null, seq = 0, charsText = '', untilText = '';
+  let flashText = '', flashUntil = 0;
+  const paintMeta = () => {
+    const flashing = Date.now() < flashUntil;
+    meta.textContent = flashing ? flashText : [charsText, untilText].filter(Boolean).join(' · ');
+    meta.style.color = flashing ? 'var(--warn)' : '';
+  };
+
+  let emptyNode = null, hotkeyKbd = null;
+  function empty() {
+    if (emptyNode) { if (out.firstChild !== emptyNode) out.replaceChildren(emptyNode); if (S) { hotkeyKbd.textContent = prettyKey(S.settings.hotkey, S.platform); hotkeyKbd.style.opacity = !S.hotkey || S.hotkey.ok ? '' : '.45'; hotkeyKbd.title = !S.hotkey || S.hotkey.ok ? '' : 'This shortcut is not active — change it in Settings'; } return; }
+    hotkeyKbd = el('span', { class: 'kbd', text: S ? prettyKey(S.settings.hotkey, S.platform) : '' });
+    emptyNode = el('div', { class: 'empty' },
+      el('strong', { text: 'Know before you hit enter' }),
+      el('ol', {}, el('li', {}, 'Write your prompt in Claude, then select it all and ', el('b', { text: 'copy' }), ' it (⌘C / Ctrl+C).'),
+        el('li', {}, 'Press ', hotkeyKbd, ' from anywhere — no need to open Tokkie — or paste it above.'),
+        el('li', {}, 'I’ll tell you roughly how long it will run and whether it fits before your finish time.')));
+    out.replaceChildren(emptyNode);
+  }
+
+  function render(r) {
+    last = r;
+    const { plan, duration: d, tokens: t, share } = r;
+    const [k, title] = TITLES[plan.verdict];
+    const fin = fmtTime(r.finishBy);
+    let msg;
+    if (plan.verdict === 'over') msg = `It’s already past ${fin}. This would take about ${fmtRange(d.p25, d.p90)} — best saved for tomorrow.`;
+    else if (plan.verdict === 'go') msg = `Likely done by ${fmtTime(plan.etaP50)}, worst case ${fmtTime(plan.etaP90)} — ${fmtDur(Math.max(0, (r.finishBy - plan.etaP90) / 1000))} to spare before ${fin}.`;
+    else if (plan.verdict === 'tight') msg = `Most runs finish by ${fmtTime(plan.etaP50)}, but a slow one could run to ${fmtTime(plan.etaP90)}, past ${fin}.` + (plan.sendBy > r.now ? ` Send it by ${fmtTime(plan.sendBy)} to be safe.` : ' Trim it or send it now and check back.');
+    else msg = `Usually ${fmtRange(d.p25, d.p75)}, so you’d finish around ${fmtTime(plan.etaP50)} — after ${fin}. Queue it for tomorrow or split it into a smaller first step.`;
+
+    // Timeline: now → finish, zoomed to the run when the finish time is far away so the band stays readable.
+    const toP90 = plan.etaP90 - r.now, toFinish = r.finishBy - r.now;
+    const far = toFinish > toP90 * 3;
+    const domain = (far ? toP90 * 1.5 : Math.max(toFinish, toP90) * 1.1);
+    const pos = (ms) => clamp(((ms - r.now) / domain) * 100, 0, 100);
+    const lo = pos(r.now + d.p25 * 1000), hi = pos(plan.etaP90), mid = pos(plan.etaP50), end = pos(r.finishBy);
+    const showEnd = plan.verdict !== 'over' && !far;
+    const tl = el('div', { class: 'tl', role: 'img', 'aria-label': `Timeline: expected finish ${fmtTime(plan.etaP50)}, worst case ${fmtTime(plan.etaP90)}, your finish time ${fin}` },
+      el('div', { class: 'track' }), el('div', { class: 'band', style: `left:${lo}%;width:${Math.max(3, hi - lo)}%` }), el('div', { class: 'mid', style: `left:calc(${mid}% - 1px)` }),
+      showEnd ? el('div', { class: 'end', style: `left:calc(${end}% - 1px)` }) : null,
+      el('span', { class: 'lbl', style: 'left:0', text: 'now' }),
+      el('span', { class: 'lbl', style: showEnd ? (end > 72 ? `right:${100 - end}%;margin-right:6px;color:var(--bad)` : `left:${end}%;margin-left:6px;color:var(--bad)`) : 'right:0', text: showEnd ? fin : plan.verdict === 'over' ? '' : `${fin} ›` }));
+
+    const shareTxt = share ? `${share.lo < 1 ? '<1' : Math.round(share.lo)}–${Math.max(1, Math.round(share.hi))}% of 5-hour limit` : '';
+    const conf = r.confidence === 'low' ? `Still learning your pace (${r.n} run${r.n === 1 ? '' : 's'} so far). Treat this as a rough guess.`
+      : r.confidence === 'medium' ? `Based on your last ${r.n} runs.` : `Based on your last ${Math.min(r.n, 300)} runs. Big agentic tasks still vary a lot.`;
+    paintMeta();
+    out.replaceChildren(
+      el('div', { class: 'verdict', 'data-k': k }, el('span', { class: 'dot', 'data-k': k }), el('h3', { text: title }), el('p', { text: msg }), tl),
+      el('div', { class: 'kv' },
+        el('div', { class: 'row' }, el('span', { text: 'Run time' }), el('span', { text: fmtRange(d.p25, d.p75) })),
+        el('div', { class: 'row' }, el('span', { text: 'Tokens it will use' }), el('span', { text: `≈ ${fmtTokens(r.headline.p25)}–${fmtTokens(r.headline.p75)}` })),
+        el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: share ? `≈ ${shareTxt}` : 'connect limits for %', style: share ? '' : 'font-weight:500;color:var(--ink-3)' }))),
+      el('p', { class: 'muted', text: conf }));
+  }
+
+  async function run() {
+    const text = ta.value; const mine = ++seq;
+    if (!text.trim()) { last = null; empty(); charsText = ''; paintMeta(); return; }
+    const r = await api.estimate(text); if (mine !== seq) return;
+    charsText = `${text.length.toLocaleString()} chars · ≈${fmtTokens(r.promptTokens)} tokens`;
+    render(r);
+  }
+  const rerun = () => { clearTimeout(timer); timer = setTimeout(run, 120); };
+  ta.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 220); });
+
+  let runsKey = '';
+  function renderRuns(s) {
+    const key = JSON.stringify([s.runs, s.k5, Math.floor(s.now / 60000)]);
+    if (key === runsKey) return; runsKey = key;
+    const runs = s.runs || [];
+    const head = el('div', { class: 'row' }, el('span', { class: 'label', text: 'Recent runs' }), el('span', { class: 'muted', text: 'what each prompt actually cost' }));
+    if (!runs.length) { runsBox.replaceChildren(head, el('p', { class: 'muted', text: 'Runs you make will appear here with how long they took and how many tokens they used.' })); return; }
+    const rows = runs.map((r) => {
+      const share = s.k5 && r.tokens ? (r.tokens / s.k5) * 100 : null;
+      const tok = r.headline ? `≈ ${fmtTokens(r.headline)} tokens${share != null ? ` · ${share < 1 ? '<1' : Math.round(share)}% of 5h` : ''}` : '';
+      const chips = [];
+      if (r.est) {
+        const a = accuracy(r.duration, r.est.dur), b = r.headline ? accuracy(r.headline, r.est.head) : null;
+        chips.push(el('span', { class: 'acc', 'data-k': a, title: `Estimated ${fmtRange(r.est.dur.p25, r.est.dur.p75)}` }, `time ${ACC_TXT[a]}`));
+        if (b) chips.push(el('span', { class: 'acc', 'data-k': b, title: `Estimated ${fmtTokens(r.est.head.p25)}–${fmtTokens(r.est.head.p75)} tokens` }, `tokens ${ACC_TXT[b]}`));
+      }
+      return el('div', { class: 'run' },
+        el('div', { class: 'row' }, el('span', { class: 'muted', text: `${fmtDur((s.now - r.start) / 1000)} ago · ${r.chars.toLocaleString()} chars` }), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
+        el('div', { class: 'rtok', text: tok || 'tokens not recorded' }),
+        chips.length ? el('div', { class: 'chips2' }, el('span', { class: 'muted', text: 'estimate:' }), chips) : el('div', { class: 'muted', text: 'not estimated beforehand' }));
+    });
+    runsBox.replaceChildren(head, ...rows);
+  }
+
+  return {
+    update(s) {
+      S = s; renderRuns(s);
+      if (document.activeElement !== finish && !finish.hasAttribute('aria-invalid')) finish.value = labelForHHMM(s.settings.finishBy);
+      const fb = new Date(s.now); const [h, m] = s.settings.finishBy.split(':').map(Number); fb.setHours(h, m, 0, 0);
+      const left = (fb - s.now) / 1000;
+      untilText = left > 0 ? `${fmtDur(left)} to go` : 'past finish time';
+      paintMeta();
+      if (!last && !ta.value.trim()) empty();
+      else if (last && s.now - last.now > 30000) rerun();     // keep ETAs honest as the clock moves
+    },
+    flash(msg) { flashText = msg; flashUntil = Date.now() + 6000; paintMeta(); setTimeout(paintMeta, 6100); },
+    setText(text) { ta.value = text.slice(0, 20000); run(); },
+    setResult(text, result) { ta.value = text.slice(0, 20000); charsText = `${text.length.toLocaleString()} chars · ≈${fmtTokens(result.promptTokens)} tokens`; render(result); },
+    focus() { ta.focus(); },
+  };
+}

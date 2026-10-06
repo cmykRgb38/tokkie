@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tokkie</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-5"/><path d="M4.5 18a9 9 0 1 1 15 0"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-paw" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="3"/><path d="M9 11v1.5M15 11v1.5M10 15h4"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M6 10l6 6 6-6"/></symbol>
+    <symbol id="i-dice" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5"/><circle cx="9" cy="9" r=".9" fill="currentColor"/><circle cx="15" cy="15" r=".9" fill="currentColor"/><circle cx="15" cy="9" r=".9" fill="currentColor"/><circle cx="9" cy="15" r=".9" fill="currentColor"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v4M15 3v4M6 7h12v3a6 6 0 0 1-12 0V7zM12 16v5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-clip" viewBox="0 0 24 24"><rect x="6" y="5" width="12" height="16" rx="2"/><path d="M9 5V4h6v1M9.5 11h5M9.5 15h5"/></symbol>
+  </defs>
+</svg>
+
+<div id="app" class="below" data-mode="collapsed">
+  <div id="stage" data-hit role="button" tabindex="0" aria-label="Tokkie — open or close the panel" aria-expanded="false">
+    <div id="bubble" class="bubble" role="alert" hidden><span class="bang" aria-hidden="true">!</span><span class="btext"><b id="bubbleTitle"></b><small id="bubbleSub"></small></span></div>
+    <canvas id="pet" aria-hidden="true"></canvas>
+  </div>
+  <div id="pills" class="pills" data-hit role="status" aria-live="polite"></div>
+
+  <section id="panel" class="panel" data-hit aria-label="Tokkie panel" hidden>
+    <header class="head">
+      <div class="who">
+        <div class="name" id="petName">Tokkie</div>
+        <div class="traits" id="petTraits"></div>
+      </div>
+      <div class="chip" id="chip" role="status"></div>
+      <button class="icon-btn" id="collapse" type="button" aria-label="Collapse panel" title="Collapse (Esc)"><svg class="ic"><use href="#i-down"/></svg></button>
+    </header>
+
+    <div class="views">
+      <section class="view" id="view-usage" role="tabpanel" aria-labelledby="tab-usage"></section>
+      <section class="view" id="view-plan" role="tabpanel" aria-labelledby="tab-plan" hidden></section>
+      <section class="view" id="view-pets" role="tabpanel" aria-labelledby="tab-pets" hidden></section>
+      <section class="view" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden></section>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="Sections">
+      <button role="tab" id="tab-usage" data-tab="usage" aria-selected="true"><svg class="ic"><use href="#i-gauge"/></svg><span>Usage</span></button>
+      <button role="tab" id="tab-plan" data-tab="plan" aria-selected="false"><svg class="ic"><use href="#i-clock"/></svg><span>Estimate</span></button>
+      <button role="tab" id="tab-pets" data-tab="pets" aria-selected="false"><svg class="ic"><use href="#i-paw"/></svg><span>Pets</span></button>
+      <button role="tab" id="tab-settings" data-tab="settings" aria-selected="false"><svg class="ic"><use href="#i-gear"/></svg><span>Settings</span></button>
+    </nav>
+  </section>
+</div>
+
+<script src="../core/monster.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

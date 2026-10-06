@@ -1,0 +1,19 @@
+<!doctype html><meta charset="utf-8"><title>Pet states</title>
+<style>:root{color-scheme:dark}body{margin:0;background:#1b1a21;color:#bbb;font:12px system-ui;padding:16px}
+.g{display:grid;grid-template-columns:repeat(var(--cols,5),1fr);gap:12px}.c{background:#24232b;border-radius:10px;padding:8px;text-align:center}canvas{image-rendering:pixelated}</style>
+<div class="g" id="g"></div>
+<script src="../../core/monster.js"></script>
+<script type="module">
+import { Pet } from '../pet.js';
+const q = new URLSearchParams(location.search); if (q.get('cols')) document.documentElement.style.setProperty('--cols', q.get('cols'));
+const moods0 = q.get('moods'),  seed = q.get('seed') || 'you:3', ticks = +(q.get('t') || 14), look = JSON.parse(q.get('look') || '{"x":0,"y":0}');
+const moods = moods0 ? moods0.split(',') : ['idle', 'work', 'stress', 'hungry', 'sleep', 'done', 'angry', 'bored', 'playful', 'surprised', 'love'];
+for (const mood of moods) {
+  const cv = document.createElement('canvas'), p = new Pet(cv, { scale: +(q.get('scale') || 5), spriteOnly: q.has('sprite') });
+  p.setSeed(seed); p.look = look; p.blinkAt = 1e12;
+  if (['angry', 'bored', 'playful', 'surprised', 'love'].includes(mood)) p.emote(mood, 1e9); else p.setMood(mood);
+  if (mood === 'work') p.intensity = 3;
+  for (let i = 0; i < ticks; i++) p.step();
+  const d = document.createElement('div'); d.className = 'c'; d.append(cv, mood); document.getElementById('g').append(d);
+}
+</script>

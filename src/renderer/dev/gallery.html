@@ -1,0 +1,17 @@
+<!doctype html><meta charset="utf-8"><title>Monster gallery</title>
+<style>body{margin:0;background:#1b1a21;color:#bbb;font:12px system-ui;padding:16px}
+.g{display:grid;grid-template-columns:repeat(8,1fr);gap:10px}.c{background:#24232b;border-radius:10px;padding:6px;text-align:center}canvas{image-rendering:pixelated;width:100%}</style>
+<div class="g" id="g"></div>
+<script src="../../core/monster.js"></script>
+<script>
+const M = TokkieMonster, q = new URLSearchParams(location.search);
+const pose = JSON.parse(q.get('pose') || '{}'), n = +(q.get('n') || 48), start = +(q.get('s') || 0);
+for (let i = start; i < start + n; i++) {
+  const spec = M.generate((q.get('p') || 'you:') + i), f = M.compose(spec, pose);
+  const cv = document.createElement('canvas'), S = 6; cv.width = M.W * S; cv.height = M.H * S;
+  const ctx = cv.getContext('2d');
+  for (const c of [...f.outline, ...f.cells]) { ctx.fillStyle = c.c; ctx.fillRect(c.x * S, c.y * S, S, S); }
+  const d = document.createElement('div'); d.className = 'c'; d.append(cv, spec.name + ' · ' + spec.traits.join(' '));
+  document.getElementById('g').append(d);
+}
+</script>

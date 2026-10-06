@@ -1,0 +1,96 @@
+{
+  "name": "tokkie",
+  "productName": "Tokkie",
+  "version": "1.0.0",
+  "description": "A tiny desktop pet that tracks your Claude usage live and tells you how long your next prompt will take.",
+  "main": "src/main/main.js",
+  "author": "Tokkie contributors",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/*.test.*\"",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir",
+    "icons": "node scripts/make-icons.js",
+    "prestart": "node scripts/ensure-electron.js",
+    "predist": "node scripts/ensure-electron.js",
+    "predist:dir": "node scripts/ensure-electron.js",
+    "e2e": "node scripts/ensure-electron.js && node scripts/e2e.js",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:win": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.tokkie.pet",
+    "productName": "Tokkie",
+    "files": [
+      "src/**/*",
+      "scripts/statusline-hook.js",
+      "assets/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png",
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "assets/icon.png",
+      "category": "Utility"
+    },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "dmg": {
+      "title": "${productName} ${version}"
+    }
+  },
+  "allowScripts": {
+    "electron": true,
+    "electron-winstaller": true
+  }
+}

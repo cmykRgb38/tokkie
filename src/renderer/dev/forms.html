@@ -1,0 +1,23 @@
+<!doctype html><meta charset="utf-8"><title>Evolution forms</title>
+<style>:root{color-scheme:dark}body{margin:0;background:#1b1a21;color:#bbb;font:12px system-ui;padding:14px}
+.g{display:grid;grid-template-columns:70px repeat(4,1fr);gap:8px;align-items:center}.c{background:#24232b;border-radius:10px;padding:4px;text-align:center}canvas{image-rendering:pixelated;width:100%}h4{margin:10px 0 4px}</style>
+<div id="root"></div>
+<script src="../../core/monster.js"></script>
+<script>
+const M = TokkieMonster, q = new URLSearchParams(location.search);
+const seeds = (q.get('seeds') || 'you:3,larrie-11').split(',');
+for (const seed of seeds) {
+  const base = M.generate(seed);
+  const h = document.createElement('h4'); h.textContent = base.name + ' (' + seed + ')'; document.getElementById('root').append(h);
+  const g = document.createElement('div'); g.className = 'g'; document.getElementById('root').append(g);
+  for (let fat = 0; fat <= 2; fat++) {
+    const lab = document.createElement('div'); lab.textContent = ['trim', 'chubby', 'round'][fat]; g.append(lab);
+    for (let stage = 1; stage <= 4; stage++) {
+      const f = M.compose(M.evolveSpec(base, stage, fat), {}), S = 8, cv = document.createElement('canvas');
+      cv.width = M.W * S; cv.height = M.H * S; const ctx = cv.getContext('2d');
+      for (const c of [...f.outline, ...f.cells]) { ctx.fillStyle = c.c; ctx.fillRect(c.x * S, c.y * S, S, S); }
+      const d = document.createElement('div'); d.className = 'c'; d.append(cv, ['Hatchling', 'Junior', 'Champion', 'Mega'][stage - 1]); g.append(d);
+    }
+  }
+}
+</script>

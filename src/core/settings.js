@@ -1,0 +1,66 @@
+'use strict';
+const fs = require('fs');
+const path = require('path');
+
+const DEFAULTS = Object.freeze({
+  finishBy: '18:30',
+  bufferMin: 10,
+  hotkey: 'CommandOrControl+Alt+Shift+L',
+  clipboardWatch: false,
+  launchAtLogin: false,
+  alwaysOnTop: true,
+  scale: 6,
+  fallbackBudget5h: 0,       // tokens; 0 = unknown until the statusline reports a real %
+  monsters: { active: '', saved: [] },
+  seed: null,                // first monster seed (derived from user on first run)
+  window: { x: null, y: null, expanded: false, tab: 'usage' },
+  calib: { five: {}, seven: {} },
+  samples: [],               // persisted finished turns (survive log rotation)
+  theme: 'auto',            // auto | light | dark
+  notifyDone: true,
+  alertBubble: true,         // pet reacts (hop + blinking !/?) when Claude finishes / may need you
+  speechBubble: true,        // ...and also show the "Done — awaiting your response" speech bubble
+  evolution: { start: 0, archived: 0, stageSeen: 1 },   // growth bookkeeping: when feeding began, tokens already pruned from memory, last form celebrated
+  onboarded: false,
+});
+
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+
+/** Copy persisted values over defaults. Unknown keys are kept only where the default is an open-ended map ({}). */
+function merge(base, extra) {
+  if (!isObj(extra)) return base;
+  for (const k of Object.keys(base)) {
+    if (!(k in extra)) continue;
+    const b = base[k], e = extra[k];
+    if (isObj(b) && Object.keys(b).length === 0) { if (isObj(e)) base[k] = clone(e); }          // open map (calib, calib.five…)
+    else if (isObj(b)) base[k] = merge(b, e);
+    else if (Array.isArray(b)) { if (Array.isArray(e)) base[k] = e; }
+    else if (b === null || e === null || typeof e === typeof b) base[k] = e;
+  }
+  return base;
+}
+
+class Settings {
+  constructor(file) { this.file = file; this.data = clone(DEFAULTS); this.load(); this._t = null; }
+  load() {
+    try { merge(this.data, JSON.parse(fs.readFileSync(this.file, 'utf8'))); } catch { /* first run or corrupt: defaults */ }
+    const d = this.data;
+    d.samples = (Array.isArray(d.samples) ? d.samples : []).filter((x) => x && Number.isFinite(x.start) && Number.isFinite(x.duration) && Number.isFinite(x.chars));
+    d.monsters = { active: String(d.monsters.active || ''), saved: (Array.isArray(d.monsters.saved) ? d.monsters.saved : []).map(String).slice(0, 5) };
+    for (const k of ['five', 'seven']) if (!isObj(d.calib[k]) || !(d.calib[k].k > 0)) d.calib[k] = {};
+  }
+  get(k) { return this.data[k]; }
+  set(patch) { Object.assign(this.data, patch); this.saveSoon(); }
+  saveSoon() { clearTimeout(this._t); this._t = setTimeout(() => this.save(), 400); }
+  save() {
+    try {
+      fs.mkdirSync(path.dirname(this.file), { recursive: true });
+      const tmp = this.file + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(this.data, null, 2));
+      fs.renameSync(tmp, this.file);
+    } catch (e) { console.error('settings save failed', e.message); }
+  }
+}
+
+module.exports = { Settings, DEFAULTS, merge };
