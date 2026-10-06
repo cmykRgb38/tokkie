@@ -3,20 +3,37 @@ import { el, icon, fmtTokens, fmtDur, fmtPct, clamp } from '../util.js';
 /** Colour by how much is USED (matches Claude's own Settings → Usage bar, which fills as you use more). */
 export const kindUsed = (used) => (used >= 90 ? 'bad' : used >= 70 ? 'warn' : 'good');
 
-function meterNode(title) {
+function meterNode(title, id, api) {
   const val = el('span', { class: 'left' });
   const fill = el('i');
   const bar = el('div', { class: 'bar', role: 'progressbar', 'aria-label': title, 'aria-valuemin': 0, 'aria-valuemax': 100 }, fill);
   const foot = el('div', { class: 'foot' });
-  const root = el('div', { class: 'meter' }, el('div', { class: 'top' }, el('span', { class: 'label', text: title }), val), bar, foot);
+  // "Sync with Claude": type the % Claude's own Usage page shows → exact now, and a new calibration point for the live estimate.
+  const input = el('input', { class: 'input', type: 'text', inputmode: 'decimal', 'aria-label': `${title}: percentage shown by Claude`, placeholder: 'e.g. 36', style: 'width:70px;height:28px;text-align:center' });
+  const saveBtn = el('button', { class: 'btn sm primary', type: 'button', text: 'Save' });
+  const msg = el('span', { class: 'muted' });
+  const syncRow = el('div', { class: 'syncrow', hidden: true }, el('span', { class: 'muted', text: 'Claude says' }), input, el('span', { class: 'muted', text: '%' }), saveBtn, msg);
+  const syncBtn = el('button', { class: 'btn sm quiet', type: 'button', text: 'Sync with Claude', title: 'Open Claude → Settings → Usage and type the percentage it shows' });
+  const commit = async () => {
+    const v = parseFloat(String(input.value).replace('%', '').replace(',', '.'));
+    if (!(v >= 0 && v <= 100)) { msg.textContent = 'Enter a number from 0 to 100'; msg.style.color = 'var(--bad)'; return; }
+    const r = await api.setReading(id, v);
+    if (r && r.ok) { syncRow.hidden = true; syncBtn.hidden = false; input.value = ''; msg.textContent = ''; } else { msg.textContent = 'Could not save'; msg.style.color = 'var(--bad)'; }
+  };
+  saveBtn.addEventListener('click', commit);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { e.stopPropagation(); syncRow.hidden = true; syncBtn.hidden = false; } });
+  syncBtn.addEventListener('click', () => { syncRow.hidden = false; syncBtn.hidden = true; msg.textContent = ''; input.focus(); });
+  const root = el('div', { class: 'meter' }, el('div', { class: 'top' }, el('span', { class: 'label', text: title }), val), bar, foot, el('div', { class: 'syncwrap' }, syncBtn, syncRow));
   return {
     root,
     set(m, now) {
       val.textContent = `${m.approx ? '≈ ' : ''}${fmtPct(m.pct)}% used`;
       fill.style.width = clamp(m.pct, 0, 100) + '%'; bar.dataset.k = kindUsed(m.pct); bar.setAttribute('aria-valuenow', Math.round(m.pct));
       const age = Math.max(0, (now - m.readAt) / 1000);
+      const who = m.source === 'manual' ? 'you said' : 'Claude said';
       const note = m.source === 'estimate' ? 'from your token budget'
-        : m.approx && m.baseline != null ? `live estimate · Claude said ${fmtPct(m.baseline)}% ${fmtDur(age)} ago`
+        : m.source === 'manual' && age < 90 ? 'from you · just now'
+        : m.approx && m.baseline != null ? `live estimate · ${who} ${fmtPct(m.baseline)}% ${fmtDur(age)} ago`
         : age < 90 ? 'just now' : `Claude's last reading ${fmtDur(age)} ago`;
       const parts = [el('span', { text: note, title: m.approx ? 'Claude only saves a reading now and then. Tokkie adds what you have used since, calibrated against Claude’s earlier readings.' : '' })];
       if (m.resetsAt && m.resetsAt > now) parts.push(el('span', { text: `resets in ${fmtDur((m.resetsAt - now) / 1000)}` }));
@@ -67,7 +84,7 @@ export function usageView(root, api) {
       const now = S.now, list = [];
       const meters = Array.isArray(S.meters) ? S.meters : [];
       for (const m of meters) {
-        if (!nodes.has(m.id)) nodes.set(m.id, meterNode(m.label));
+        if (!nodes.has(m.id)) nodes.set(m.id, meterNode(m.label, m.id, api));
         const n = nodes.get(m.id); n.set(m, now); list.push(n.root);
       }
       if (!meters.length) {

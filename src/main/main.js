@@ -193,6 +193,7 @@ function setupIpc() {
     return out;
   });
 
+  ipcMain.handle('usage:setReading', (_e, id, pct) => { const ok = engine.setManualReading(String(id), Number(pct)); send('state', snapshot()); return { ok }; });
   ipcMain.handle('setup:status', () => setup.status());
   ipcMain.handle('setup:connect', () => {
     const hookSource = path.join(__dirname, '..', '..', 'scripts', 'statusline-hook.js');

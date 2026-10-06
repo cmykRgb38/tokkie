@@ -243,3 +243,7 @@ button.slot:hover { border-color: var(--line-strong); transform: translateY(-1px
 .form[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 650; }
 .form canvas { image-rendering: pixelated; }
 .evo .bar > i { background: var(--accent); }
+
+.syncwrap { margin-top: 4px; min-height: 28px; display: flex; align-items: center; }
+.syncrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.meter .syncwrap .btn { padding-left: 0; }

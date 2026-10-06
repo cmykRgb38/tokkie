@@ -30,6 +30,7 @@ const api = {
   disconnect: async () => { const r = await bridge.setup.disconnect(); views.settings.refreshSetup(); return r; },
   setupStatus: () => bridge.setup.status(),
   sources: () => bridge.sources(),
+  setReading: (id, pct) => bridge.setReading(id, pct),
   emote: (m) => pet.emote(m, m === 'sleep' ? 5000 : 3500),
   dismissWelcome: () => bridge.setSettings({ onboarded: true }),
   hide: () => bridge.ui.hide(), quit: () => bridge.ui.quit(),

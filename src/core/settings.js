@@ -20,6 +20,7 @@ const DEFAULTS = Object.freeze({
   notifyDone: true,
   alertBubble: true,         // pet reacts (hop + blinking !/?) when Claude finishes / may need you
   speechBubble: true,        // ...and also show the "Done — awaiting your response" speech bubble
+  manualReadings: [],        // percentages you typed in from Claude's Usage page: [{id, t, pct}] — exact anchors + calibration points
   evolution: { start: 0, archived: 0, stageSeen: 1 },   // growth bookkeeping: when feeding began, tokens already pruned from memory, last form celebrated
   onboarded: false,
 });

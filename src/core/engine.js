@@ -81,6 +81,28 @@ class Engine extends EventEmitter {
     } catch { if (this.limits) { this.limits = null; this.limitsMtime = 0; this.emit('change'); } }
   }
 
+  /** Claude's saved readings plus the ones you typed in, merged per window (newest wins; both feed the calibration). */
+  _mergedDesktop() {
+    const base = this.desktop ? { ...this.desktop, series: { ...(this.desktop.series || {}) } } : { t: 0, five: null, seven: null, extra: null, series: {} };
+    for (const r of this.settings.get('manualReadings') || []) {
+      if (!['five', 'seven', 'extra'].includes(r.id) || !Number.isFinite(r.t) || !Number.isFinite(r.pct)) continue;
+      base.series[r.id] = [...(base.series[r.id] || []), { t: r.t, pct: r.pct }].sort((a, b) => a.t - b.t);
+      if (!base[r.id] || r.t > base[r.id].t) base[r.id] = { pct: r.pct, t: r.t, manual: true };
+      base.t = Math.max(base.t || 0, r.t);
+    }
+    return base;
+  }
+
+  /** Record "Claude's Usage page says X% right now" for the given meter. Returns false if the input is not sensible. */
+  setManualReading(id, pct, now = this.now()) {
+    if (!['five', 'seven', 'extra'].includes(id) || !Number.isFinite(pct) || pct < 0 || pct > 100) return false;
+    const list = [...(this.settings.get('manualReadings') || []), { id, t: now, pct }].slice(-60);
+    this.settings.set({ manualReadings: list });
+    this._snapKey = null;                   // drop the cached snapshot so the new anchor shows immediately
+    this._calibrate(); this.emit('change');
+    return true;
+  }
+
   _readDesktop() {
     const m = statMtime(this.desktopDirs);
     if (m === this.desktopMtime) return;
@@ -89,7 +111,7 @@ class Engine extends EventEmitter {
 
   /** tokens-per-1% for each window, from Claude's own reading history vs what we saw in between (cheap; redone when the file changes). */
   _calibrate() {
-    const d = this.desktop, now = this.now();
+    const d = this._mergedDesktop(), now = this.now();
     this.desktopK = d && d.series ? { five: tokensPer100(d.series.five, this.store, now), seven: tokensPer100(d.series.seven, this.store, now), extra: tokensPer100(d.series.extra, this.store, now) } : {};
     this.calibAt = now;
   }
@@ -136,7 +158,7 @@ class Engine extends EventEmitter {
     const active = this.store.activeTurn(now);
     if (now - this.calibAt > 600e3) this._calibrate();
     const live = (id, reading) => liveEstimate(reading, this.desktopK[id], this.store, now);
-    const meters = buildMeters({ statusline: lim, desktop: this.desktop, fallback, now, live });
+    const meters = buildMeters({ statusline: lim, desktop: this._mergedDesktop(), fallback, now, live });
     const eta = active ? predict(this.store.samples, '', active.chars, { prev: active.prev || 0, hint: active.hint }).duration : null;
     return {
       now, loaded: this.loaded, eta,
@@ -144,7 +166,7 @@ class Engine extends EventEmitter {
       tokens: { today: t.today.headline, last5h: t.last5h.headline, week: t.week.headline, burn: t.burn, weightedLast5h: t.last5h.weighted },
       spark: t.spark,
       limits: lim, fallback, block: t.block,
-      meters, desktopSeen: !!this.desktop, evolution: evolutionFor(this.eaten()),
+      meters, desktopSeen: !!this.desktop, manualCount: (this.settings.get('manualReadings') || []).length, evolution: evolutionFor(this.eaten()),
       runs: this.recentRuns(8), k5: (this.settings.get('calib').five || {}).k || null,
       samples: this.store.samples.length,
       files: this.tailer.files.size,

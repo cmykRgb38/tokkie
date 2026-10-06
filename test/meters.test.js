@@ -112,3 +112,28 @@ test('end to end: a stale Claude reading is bridged into a live, labelled estima
   assert.ok(Math.abs(m.pct - 18) < 0.05, `expected ~18% (14 + 2×20000 tokens at 10000/1%), got ${m.pct}`);   // 20000 tokens ≙ 2% each
   eng.stop(); fs.rmSync(dir, { recursive: true });
 });
+
+test('typing in the percentage Claude shows re-anchors the meter and keeps improving the calibration', async () => {
+  const dir = tmp(); const app = path.join(dir, 'ClaudeApp'); fs.mkdirSync(app); const proj = path.join(dir, 'projects', 'p'); fs.mkdirSync(proj, { recursive: true });
+  const H = 3600e3, now0 = Date.now();
+  writeHist(app, [{ t: now0 - 9 * H, org: 'A', u: { xu: 10 } }, { t: now0 - 8 * H, org: 'A', u: { xu: 12 } }]);            // old, stale readings
+  const mk = (t, id, o) => A(t, id, { i: 0, o, cw: 0, cr: 0 });
+  fs.writeFileSync(path.join(proj, 's.jsonl'), [mk(now0 - 8.5 * H, 'a', 20000), mk(now0 - 2 * H, 'b', 40000)].join('\n') + '\n');
+  const settings = new Settings(path.join(dir, 's.json'));
+  const eng = new Engine({ settings, env: { TOKKIE_HOME: path.join(dir, 'h') }, home: dir, desktopDirs: [app], roots: () => [{ dir: path.join(dir, 'projects'), source: 'code' }] });
+  await eng.start();
+  const before = eng.snapshot().meters.find((x) => x.id === 'extra');
+  assert.ok(before.pct > 12, 'bridged from the stale reading');
+  assert.equal(eng.setManualReading('extra', 40), true);
+  const after = eng.snapshot().meters.find((x) => x.id === 'extra');
+  assert.ok(Math.abs(after.pct - 40) < 0.6, `anchored to what you typed, got ${after.pct}`);
+  assert.equal(after.source, 'manual'); assert.equal(settings.get('manualReadings').length, 1, 'persisted');
+  for (const bad of [-1, 101, NaN, Infinity, 'x']) assert.equal(eng.setManualReading('extra', bad), false, String(bad));
+  assert.equal(eng.setManualReading('nope', 5), false);
+  assert.equal(settings.get('manualReadings').length, 1, 'bad input is never stored');
+  // the typed reading also teaches the calibration: usage since then moves the number in the right proportion
+  eng.store.ingest(parseLine(mk(Date.now() + 1000, 'zz', 20000)));
+  const later = eng.snapshot(Date.now() + 2000).meters.find((x) => x.id === 'extra');
+  assert.ok(later.pct > after.pct, 'more usage → higher estimate');
+  eng.stop(); fs.rmSync(dir, { recursive: true });
+});

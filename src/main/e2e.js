@@ -146,6 +146,22 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       const forms = await js(`[...document.querySelectorAll('#view-pets .form')].map((f) => f.textContent + (f.getAttribute('aria-current') === 'true' ? '*' : ''))`);
       ok('Pets tab shows all four forms with the unlocked ones named and the rest hidden', forms.length === 4 && forms[0].startsWith('Hatchling') && forms[3].includes('???'), forms.join(' | '));
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(500);
+      // ---- "Sync with Claude": type the % Claude shows → the meter re-anchors to it
+      await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(600);
+      await js(`document.getElementById('tab-usage').click()`); await wait(400);
+      const hasMeter = await js(`!!document.querySelector('#view-usage .meter')`);
+      if (hasMeter) {
+        await js(`document.querySelector('#view-usage .syncwrap button').click()`); await wait(200);
+        await js(`(()=>{const i=document.querySelector('#view-usage .syncrow input'); i.value='38'; i.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('#view-usage .syncrow .btn.primary').click();})()`); await wait(1500);
+        const shown = await js(`document.querySelector('#view-usage .meter .left').textContent + ' | ' + document.querySelector('#view-usage .meter .foot').textContent`);
+        ok('typing the % Claude shows re-anchors the meter', /\b38%|\b39%/.test(shown) && /you/i.test(shown), shown);
+        const stored = await js(`window.tokkie.getState().then((s) => s.manualCount)`); ok('the reading is remembered', stored === 1, String(stored));
+        await js(`document.querySelector('#view-usage .syncwrap button').click()`); await wait(200);
+        await js(`(()=>{const i=document.querySelector('#view-usage .syncrow input'); i.value='abc'; document.querySelector('#view-usage .syncrow .btn.primary').click();})()`); await wait(400);
+        const bad = await js(`document.querySelector('#view-usage .syncrow .muted:last-child').textContent`);
+        ok('nonsense input is rejected with a message', /0 to 100/.test(bad) && (await js(`window.tokkie.getState().then((s) => s.manualCount)`)) === 1, bad);
+      } else ok('sync control skipped (no usage meter on this machine)', true);
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(500);
       let hk; try { hk = await js(`(async () => { const s = await window.tokkie.getState(); return JSON.stringify(s.hotkey); })()`); hk = JSON.parse(hk); } catch (e) { hk = { err: e.message }; }
       ok('the estimate shortcut is registered and matches what the UI shows', hk && hk.ok === true && hk.accelerator === 'CommandOrControl+Alt+Shift+L', JSON.stringify(hk));
       ok('no renderer console errors', errors.length === 0, errors.slice(0, 3).join(' | '));

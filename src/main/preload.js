@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('tokkie', {
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   setup: { status: () => ipcRenderer.invoke('setup:status'), connect: () => ipcRenderer.invoke('setup:connect'), disconnect: () => ipcRenderer.invoke('setup:disconnect') },
   sources: () => ipcRenderer.invoke('sources'),
+  setReading: (id, pct) => ipcRenderer.invoke('usage:setReading', id, pct),
   onState: on('state'), onEstimate: on('estimate'), onCommand: on('command'), onCursor: on('cursor'),
   ui: {
     layout: (l) => ipcRenderer.invoke('ui:layout', l),
