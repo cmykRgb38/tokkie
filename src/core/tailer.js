@@ -18,7 +18,7 @@ class Tailer {
    * @param {(events:object[]) => void} o.onEvents
    * @param {number} [o.lookbackMs] files older than this are skipped on the initial scan
    */
-  constructor({ roots, onEvents, lookbackMs = 8 * 86400e3, pollMs = 1500, discoverMs = 30000, now = Date.now }) {
+  constructor({ roots, onEvents, lookbackMs = 8 * 86400e3, pollMs = 1500, discoverMs = 5000, now = Date.now }) {
     Object.assign(this, { roots, onEvents, lookbackMs, pollMs, discoverMs, now });
     this.files = new Map(); // path -> {offset, rest:Buffer, source}
     this.timer = null;

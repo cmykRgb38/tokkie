@@ -53,6 +53,7 @@ test('estimate is paired with the run it predicted, and the run log reports both
   const dir = tmp(); const proj = path.join(dir, 'projects', 'p'); fs.mkdirSync(proj, { recursive: true });
   const settings = new Settings(path.join(dir, 's.json'));
   const eng = new Engine({ settings, env: { TOKKIE_HOME: path.join(dir, 'h') }, home: dir, roots: () => [{ dir: path.join(dir, 'projects'), source: 'code' }] });
+  fs.writeFileSync(path.join(proj, 's.jsonl'), '');       // the session file exists before Tokkie starts watching
   await eng.start();
   const prompt = 'Refactor the billing module and add tests for every endpoint please';
   const est = eng.estimate(prompt);
