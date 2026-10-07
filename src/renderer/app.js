@@ -1,5 +1,5 @@
 import { $, clamp, fmtDur, fmtClockDur, fmtTokens, fmtRange } from './util.js';
-import { Pet, EMOTES } from './pet.js';
+import { Pet, EMOTES, PERSONALITY } from './pet.js';
 import { usageView, kindUsed } from './views/usage.js';
 import { alertState, acknowledge } from './alerts.js';
 import { planView } from './views/plan.js';
@@ -14,11 +14,12 @@ const PANEL_W = 336, PANEL_H = 504, GAP = 6, MARGIN = 14, PILL_H = 30;
 const TABS = ['usage', 'plan', 'pets', 'settings'];
 
 const bubbleEl = $('#bubble'), bubbleTitle = $('#bubbleTitle'), bubbleSub = $('#bubbleSub');
-const appEl = $('#app'), stage = $('#stage'), canvas = $('#pet'), pills = $('#pills');
+const appEl = $('#app'), stage = $('#stage'), canvas = $('#pet'), pills = $('#pills'), dockEl = $('#dock');
 const panel = $('#panel'), chip = $('#chip');
 let evoInit = false, evoBubbleUntil = 0, evoBubble = null;
 const BUBBLE_ZONE = 44;                       // headroom above the pet reserved for the attention bubble (matches #stage padding-top)
 let acked = { doneEnd: null, ask: null }, forced = null;
+let booted = false, layout = 'dock', dockH = 0, dockKey = '', warned = null, warnBubble = null;
 let S = null, mode = 'collapsed', tab = 'usage', prevLast5h = null, lastEnd = null, doneUntil = 0, bubble = null, welcomed = false;
 
 // ------------------------------------------------------------------------------------- API for views
@@ -79,8 +80,8 @@ function describe(S) {
   else if (now < doneUntil) mood = 'done';
   else if (bubble && now < bubble.until && (bubble.result.plan.verdict === 'stop' || bubble.result.plan.verdict === 'over')) mood = 'stress';
   else if (usedPct != null && usedPct >= 90) mood = 'hungry';
-  else if (idleMs > 20 * 60e3) mood = 'sleep';
-  else if (idleMs > 6 * 60e3) mood = 'bored';
+  else if (idleMs > pet.P.sleepMin * 60e3) mood = 'sleep';
+  else if (idleMs > pet.P.boredMin * 60e3) mood = 'bored';
 
   let text, dot = 'idle', chipText, chipK = '';
   const rest = [];
@@ -114,8 +115,23 @@ function describe(S) {
 }
 
 // ------------------------------------------------------------------------------------- evolution
+const FORM_NAMES = ['Hatchling', 'Junior', 'Champion', 'Mega'];
 function syncEvolution(ev) {
   const seen = Math.max(1, Math.min(ev.stage, (S.settings.evolution && S.settings.evolution.stageSeen) || 1));
+  const pinned = Math.min(ev.stage, (S.settings.evolution && S.settings.evolution.display) || 0);
+  if (pinned) {
+    // You picked a form in Pets: keep showing it. Growing up still gets a note, just no transformation.
+    const fat = pinned === ev.stage ? ev.fat : 0;
+    if (!evoInit) { evoInit = true; pet.setForm(pinned, fat); }
+    else if (!pet.evo && (pet.form.stage !== pinned || pet.form.fat !== fat)) { if (pet.form.stage !== pinned) pet.evolveTo(pinned, fat); else pet.setForm(pinned, fat); }
+    if (ev.stage > seen) {
+      evoBubble = { title: `${pet.spec.name} grew into ${FORM_NAMES[ev.stage - 1]}!`, sub: `Still showing ${FORM_NAMES[pinned - 1]} — switch forms in Pets` };
+      evoBubbleUntil = Date.now() + 10000;
+      bridge.setSettings({ evolution: { stageSeen: ev.stage } });
+    }
+    return;
+  }
+  if (evoInit && !pet.evo && ev.stage > pet.form.stage && seen >= ev.stage) { pet.evolveTo(ev.stage, ev.fat); return; }   // back to the newest form after a pin: no "evolved!" note
   if (!evoInit) {
     evoInit = true;
     pet.setForm(seen, seen === ev.stage ? ev.fat : 0);                                           // show the form you last saw…
@@ -124,7 +140,7 @@ function syncEvolution(ev) {
   else if (!pet.evo && ev.stage === pet.form.stage && ev.fat !== pet.form.fat) pet.setForm(ev.stage, ev.fat);
 }
 function celebrateEvolution(ev, fromStage) {
-  const names = ['Hatchling', 'Junior', 'Champion', 'Mega'];
+  const names = FORM_NAMES;
   pet.evolveTo(ev.stage, ev.fat);
   evoBubble = { title: `${pet.spec.name} evolved into ${names[ev.stage - 1]}!`, sub: `${names[fromStage - 1]} → ${names[ev.stage - 1]} · ate ${fmtTokens(ev.eaten)} tokens` };
   evoBubbleUntil = Date.now() + 10000;
@@ -145,8 +161,91 @@ function renderPills(list) {
   });
 }
 
+/** The Dock: one line per thing you chose in Settings, skipping lines that have nothing to say yet. */
+function dockLines(S, d) {
+  const on = S.settings.dock || {}, now = S.now, out = [];
+  const m = (S.meters || [])[0];
+  const short = { five: '5-hour', seven: 'Weekly', extra: 'Usage', spend: 'Spend', budget: 'Budget' };
+  if (on.usage !== false && m) {
+    const v = `${m.approx ? '≈' : ''}${Math.round(m.pct)}%` + (m.limitUsd ? ` · $${Math.round(m.usd)}/${Math.round(m.limitUsd)}` : '');
+    out.push({ k: 'usage', label: short[m.id] || 'Usage', value: v, tone: kindUsed(m.pct), dot: kindUsed(m.pct), title: `${m.label}${m.mode === 'dollars' ? ' — Claude Code part is exact dollars from the bridge' : m.approx ? ' — live estimate since Claude’s last reading' : ''}` });
+  }
+  if (on.pace !== false && m && m.pace) {
+    const p = m.pace, tone = p.tone === 'alert' ? 'bad' : p.tone === 'fast' ? 'warn' : 'good';
+    const when = p.runOutAt ? new Date(p.runOutAt) : null;
+    const whenTxt = when ? (when.toDateString() === new Date(now).toDateString() ? when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : when.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })) : '';
+    const v = p.runOutAt ? `out ~${whenTxt}` : p.pace > 0 ? `+${Math.round(p.pace)}% fast` : `${Math.round(-p.pace)}% under`;
+    out.push({ k: 'pace', label: 'Pace', value: v, tone, title: `${Math.round(m.pct)}% used with ${Math.round(p.elapsed)}% of the period gone${p.runOutAt ? ' — at this rate you run out before it resets' : ''}` });
+  }
+  if (on.status !== false) out.push({ k: 'status', label: 'Status', value: d.chipText, tone: d.chipK === 'live' ? '' : '', dot: S.active ? 'live' : null, title: d.text });
+  if (on.tokens !== false) out.push({ k: 'tokens', label: 'Today', value: fmtTokens(S.tokens.today) + (S.bridge && S.bridge.todayUsd >= 0.01 ? ` · $${S.bridge.todayUsd.toFixed(2)}` : ''), title: 'Tokens used today (Claude Code + Cowork)' + (S.bridge && S.bridge.todayUsd >= 0.01 ? '; dollars are exact Claude Code spend' : '') });
+  if (on.lastPrompt !== false && S.lastPrompt && now - S.lastPrompt.at < 12 * 3600e3) out.push({ k: 'lastPrompt', label: 'Last prompt', value: `$${S.lastPrompt.usd.toFixed(2)}`, title: 'Exact cost of your last Claude Code prompt' });
+  if (on.context !== false && S.context && S.cache && now - S.cache.at < 3600e3) {
+    const c = S.context, tone = c.tokens >= 300e3 ? 'bad' : c.tokens >= 100e3 ? 'warn' : '';
+    out.push({ k: 'context', label: 'Context', value: fmtTokens(c.tokens) + (c.percent != null ? ` · ${Math.round(c.percent)}%` : ''), tone,
+      title: c.tokens >= 300e3 ? 'Very long conversation — a fresh one is cheaper and sharper' : c.tokens >= 100e3 ? 'Getting long — /compact would make each reply cheaper' : 'How much the current conversation sends with every message' });
+  }
+  if (on.cache !== false && S.cache) {
+    const left = S.cache.expiresAt - now;
+    if (left > -30 * 60e3) {
+      const v = left > 0 ? (left >= 60e3 ? `${Math.ceil(left / 60e3)}m left` : `${Math.ceil(left / 1000)}s left`) : 'expired';
+      out.push({ k: 'cache', label: 'Cache', value: v, tone: left <= 0 ? 'bad' : left < 5 * 60e3 ? 'warn' : '', title: left > 0 ? 'Reply before this runs out and the conversation is re-read cheaply from cache' : 'The cache expired — the next message re-sends the whole conversation at full price' });
+    }
+  }
+  if (on.agents !== false && S.agents > 0) out.push({ k: 'agents', label: 'Agents', value: `${S.agents} running`, dot: 'live', title: 'Sub-agents working right now' });
+  return out;
+}
+
+function renderDock(lines) {
+  const key = lines.map((l) => l.k).join(',');
+  if (key !== dockKey) {
+    dockKey = key;
+    dockEl.replaceChildren(...lines.map((l) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'dline'; b.dataset.k = l.k;
+      b.innerHTML = '<span class="dot" hidden></span><span class="dk"></span><span class="dv"></span>';
+      b.addEventListener('click', () => setMode('expanded', l.k === 'status' ? 'plan' : 'usage'));
+      return b;
+    }));
+  }
+  lines.forEach((l, i) => {
+    const b = dockEl.children[i]; if (!b) return;
+    b.querySelector('.dk').textContent = l.label;
+    const v = b.querySelector('.dv'); v.textContent = l.value; if (l.tone) v.dataset.k = l.tone; else delete v.dataset.k;
+    const dot = b.querySelector('.dot'); dot.hidden = !l.dot; if (l.dot) dot.dataset.k = l.dot;
+    b.title = l.title || '';
+  });
+}
+
+/** One heads-up per limit when it passes 75% and 90% (levels already passed when Tokkie starts don't nag). */
+function checkWarnings(S) {
+  const levels = [75, 90];
+  if (!warned) { warned = {}; for (const m of S.meters || []) warned[m.id] = levels.filter((l) => m.pct >= l).pop() || 0; return; }
+  for (const m of S.meters || []) {
+    const hit = levels.filter((l) => m.pct >= l).pop() || 0;
+    if (hit > (warned[m.id] || 0)) {
+      warnBubble = { title: `${m.label}: ${Math.round(m.pct)}% used`, sub: m.pace && m.pace.runOutAt ? `At this pace you run out ~${new Date(m.pace.runOutAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : hit >= 90 ? 'Nearly out — save it for what matters' : 'Three quarters gone', until: Date.now() + 12000 };
+      pet.emote('surprised', 1500);
+    }
+    if (hit < (warned[m.id] || 0) && m.pct < 70) warned[m.id] = 0;     // it reset: arm again
+    else warned[m.id] = Math.max(warned[m.id] || 0, hit);
+  }
+}
+
+function applyLayout() {
+  const want = ['dock', 'pills', 'pet'].includes(S.settings.layout) ? S.settings.layout : 'dock';
+  const collapsed = mode !== 'expanded';
+  pills.hidden = !collapsed || want !== 'pills';
+  dockEl.hidden = !collapsed || want !== 'dock';
+  appEl.dataset.layout = want;
+  let relayout = want !== layout;
+  layout = want;
+  if (!dockEl.hidden) { const h = dockEl.offsetHeight; if (Math.abs(h - dockH) > 1) { dockH = h; relayout = true; } }
+  if (relayout && collapsed && booted) sendLayout();
+}
+
 function render() {
   if (!S) return;
+  pet.setPersonality(S.settings.personality || 'cheerful');
   applyTheme(S.settings);
   const { active, saved } = S.settings.monsters;
   const ev = S.evolution || { stage: 2, fat: 0, name: 'Junior', eaten: 0 };
@@ -167,6 +266,7 @@ function render() {
   pet.intensity = clamp(S.tokens.burn / 3000, 1, 3);
 
   const d = describe(S);
+  checkWarnings(S);
   if (acked.doneEnd === null) acked = { doneEnd: S.lastTurnEnd || 0, ask: null };       // first state is the baseline: old finishes don't alert
   const enabled = S.settings.alertBubble !== false;
   const al = forced && Date.now() < forced.until ? { kind: forced.kind, since: S.now - 150000, quietMs: 90000 } : alertState(S, acked, enabled);
@@ -176,11 +276,15 @@ function render() {
     bubbleEl.hidden = !showBubble; bubbleEl.dataset.kind = al.kind;
     if (al.kind === 'done') { bubbleTitle.textContent = 'Done — awaiting your response'; bubbleSub.textContent = `${fmtDur((S.now - al.since) / 1000)} ago · click to dismiss`; }
     else { bubbleTitle.textContent = 'Quiet for ' + fmtDur(al.quietMs / 1000) + ' — may need your approval'; bubbleSub.textContent = 'click to dismiss'; }
+  } else if (warnBubble && Date.now() < warnBubble.until && mode !== 'expanded' && showBubble) {
+    bubbleEl.hidden = false; bubbleEl.dataset.kind = 'ask'; bubbleTitle.textContent = warnBubble.title; bubbleSub.textContent = warnBubble.sub;
   } else if (Date.now() < evoBubbleUntil && evoBubble && mode !== 'expanded' && showBubble) {
     bubbleEl.hidden = false; bubbleEl.dataset.kind = 'evo'; bubbleTitle.textContent = '✨ ' + evoBubble.title; bubbleSub.textContent = evoBubble.sub;
   } else bubbleEl.hidden = true;
   pet.setMood(d.mood);
   renderPills(d.pillList);
+  if (layout === 'dock' || S.settings.layout === 'dock') renderDock(dockLines(S, d));
+  applyLayout();
   chip.textContent = d.chipText; chip.dataset.k = d.chipK;
 
   if (mode === 'expanded') { for (const t of TABS) if (t === tab) views[t].update(S); }
@@ -193,11 +297,17 @@ function render() {
 function petCss() { return { w: parseFloat(canvas.style.width), h: parseFloat(canvas.style.height) }; }
 function layoutPayload(initial) {
   const { w: sw, h: sh } = petCss();
-  const cw = Math.max(sw + 2 * MARGIN, 340), ch = MARGIN + BUBBLE_ZONE + sh + GAP + PILL_H + MARGIN;
+  let cw = Math.max(sw + 2 * MARGIN, 340), ch = MARGIN + BUBBLE_ZONE + sh + GAP + PILL_H + MARGIN, cx = Math.round((cw - sw) / 2), cy = MARGIN + BUBBLE_ZONE;
+  if (layout === 'pet') ch = MARGIN + BUBBLE_ZONE + sh + MARGIN;
+  if (layout === 'dock') {
+    // pet on the left, the Dock card beside it (bottom-aligned); the card may rise into the bubble headroom if it is tall
+    const DOCK_W = 176, rowH = Math.max(BUBBLE_ZONE + sh, (dockH || 0) + 4);
+    cw = Math.max(MARGIN + sw + GAP + DOCK_W + MARGIN, 340); ch = MARGIN + rowH + MARGIN; cx = MARGIN; cy = MARGIN + rowH - sh;
+  }
   const ew = PANEL_W + 2 * MARGIN, eh = MARGIN + BUBBLE_ZONE + sh + GAP + PANEL_H + MARGIN;
   const rect = (w, y) => ({ x: Math.round((w - sw) / 2), y, w: sw, h: sh });
   return { initial: !!initial, mode,
-    collapsed: { w: cw, h: ch, pet: rect(cw, MARGIN + BUBBLE_ZONE) },
+    collapsed: { w: cw, h: ch, pet: { x: cx, y: cy, w: sw, h: sh } },
     below: { w: ew, h: eh, pet: rect(ew, MARGIN + BUBBLE_ZONE) },
     above: { w: ew, h: eh, pet: rect(ew, MARGIN + PANEL_H + GAP + BUBBLE_ZONE) } };
 }
@@ -218,7 +328,7 @@ async function setMode(next, toTab) {
   mode = next;
   const r = await sendLayout();
   appEl.className = mode === 'expanded' ? r.placement : 'below'; appEl.dataset.mode = mode;
-  panel.hidden = mode !== 'expanded'; pills.hidden = mode === 'expanded'; stage.setAttribute('aria-expanded', String(mode === 'expanded'));
+  panel.hidden = mode !== 'expanded'; applyLayout(); stage.setAttribute('aria-expanded', String(mode === 'expanded'));
   if (mode === 'expanded') { selectTab(tab); $(`#tab-${tab}`).focus({ preventScroll: true }); } else if (document.activeElement && panel.contains(document.activeElement)) stage.focus({ preventScroll: true });
   views.pets.setActive(mode === 'expanded' && tab === 'pets');
 }
@@ -261,8 +371,8 @@ stage.addEventListener('pointerup', () => { if (!drag) return; if (drag.moved) b
 stage.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pet.poke(); setMode(mode === 'expanded' ? 'collapsed' : 'expanded'); } });
 // Petting: hover for a couple of seconds and it falls in love.
 let petTimer = null;
-stage.addEventListener('pointerenter', () => { clearTimeout(petTimer); petTimer = setTimeout(() => { if (!drag) pet.emote('love', 3800); }, 2200); });
-stage.addEventListener('pointerleave', () => clearTimeout(petTimer));
+stage.addEventListener('pointerenter', () => { pet.hovered = true; clearTimeout(petTimer); petTimer = setTimeout(() => { if (!drag) pet.emote(pet.P.hover, 3800); }, pet.P.hoverMs); });
+stage.addEventListener('pointerleave', () => { pet.hovered = false; clearTimeout(petTimer); });
 stage.addEventListener('pointercancel', () => { drag = null; });
 
 // click-through everywhere except our own pixels
@@ -297,6 +407,7 @@ try {
   S = await bridge.getState();
   render();
   await sendLayout(true);
+  booted = true;
 } catch (e) { console.error('boot failed', e); }
 bridge.ui.ready();   // always reveal the window, even if something above failed
 firstRun();

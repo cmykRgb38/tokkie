@@ -22,7 +22,23 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       win.setPosition(wa.x + Math.round(wa.width / 2), wa.y + 80); await wait(300);   // upper half: panel should open below
       await js(`window.tokkie.setSettings({onboarded:true})`); await wait(400);
 
-      let st = await state(); ok('boots collapsed with a pill', st.mode === 'collapsed' && st.pill.length > 3, JSON.stringify(st));
+      let st = await state(); ok('boots collapsed', st.mode === 'collapsed', JSON.stringify(st));
+      const dk = await js(`(()=>{const d=document.getElementById('dock');const r=d.getBoundingClientRect();return {hidden:d.hidden,lines:[...d.querySelectorAll('.dline')].map(l=>l.dataset.k),right:r.right,bottom:r.bottom,vw:innerWidth,vh:innerHeight,pills:document.getElementById('pills').hidden}})()`);
+      ok('Dock is the default: lines beside the pet, inside the window', !dk.hidden && dk.pills && dk.lines.includes('status') && dk.right <= dk.vw && dk.bottom <= dk.vh, JSON.stringify(dk));
+      await js(`window.tokkie.setSettings({ dock: { status: false } })`); await wait(1300);
+      const dk2 = await js(`[...document.querySelectorAll('#dock .dline')].map(l=>l.dataset.k)`);
+      ok('a Dock line can be switched off in Settings', !dk2.includes('status') && dk2.length === dk.lines.length - 1, dk2.join());
+      await js(`window.tokkie.setSettings({ dock: { status: true } })`);
+      const pd0 = petPos();
+      await js(`window.tokkie.setSettings({ layout: 'pills' })`); await wait(1300);
+      const pl = await js(`({pills:!document.getElementById('pills').hidden, dock:!document.getElementById('dock').hidden, text:document.getElementById('pills').textContent})`);
+      ok('Pills layout shows pills instead of the Dock', pl.pills && !pl.dock && pl.text.length > 3, JSON.stringify(pl));
+      ok('switching layout keeps the pet in place', near(petPos(), pd0), JSON.stringify([pd0, petPos()]));
+      await js(`window.tokkie.setSettings({ layout: 'pet' })`); await wait(1300);
+      const pe = await js(`({pills:!document.getElementById('pills').hidden, dock:!document.getElementById('dock').hidden})`);
+      ok('Pet-only layout hides both', !pe.pills && !pe.dock, JSON.stringify(pe));
+      await js(`window.tokkie.setSettings({ layout: 'dock' })`); await wait(1300);
+      ok('back to the Dock, pet still in place', near(petPos(), pd0) && !(await js(`document.getElementById('dock').hidden`)), JSON.stringify([pd0, petPos()]));
       ok('window starts visible', win.isVisible());
       const p0 = petPos(), b0 = win.getBounds();
 
@@ -95,10 +111,16 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(700); st = await state();
       ok('Enter on the focused pet opens the panel (keyboard access)', st.mode === 'expanded');
       await js(`document.getElementById('tab-pets').click()`); await wait(300);
-      const chips = await js(`[...document.querySelectorAll('#view-pets .chips button')].map(b=>b.textContent)`);
-      ok('Pets tab offers the emotion buttons', chips.length === 7, chips.join(','));
-      await js(`document.querySelector('#view-pets .chips button:nth-child(5)').click()`); await wait(200);
+      const chips = await js(`[...document.querySelectorAll('#view-pets [aria-label="Preview an emotion"] button')].map(b=>b.textContent)`);
+      ok('Pets tab offers the emotion previews', chips.length === 7, chips.join(','));
+      await js(`document.querySelector('#view-pets [aria-label="Preview an emotion"] button:nth-child(5)').click()`); await wait(200);
       ok('clicking "Angry" makes the pet angry', (await mood(`return p.mood`)) === 'angry');
+      const per = await js(`[...document.querySelectorAll('#view-pets [aria-label="Personality"] button')].map(b=>b.textContent)`);
+      ok('Pets tab offers personalities, separate from emotions', per.join() === 'Cheerful,Playful,Sleepy,Grumpy,Shy', per.join());
+      await js(`document.querySelector('#view-pets [aria-label="Personality"] button[data-v="grumpy"]').click()`); await wait(1300);
+      ok('choosing Grumpy changes the pet and is saved', (await mood(`return p.persona`)) === 'grumpy' && settings.get('personality') === 'grumpy'
+        && (await js(`document.querySelector('#view-pets [data-v="grumpy"]').getAttribute('aria-checked')`)) === 'true');
+      await js(`document.querySelector('#view-pets [aria-label="Personality"] button[data-v="cheerful"]').click()`); await wait(300);
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(500);
 
       // The shortcut's whole path (minus the OS key delivery): clipboard → estimate → panel opens on the Estimate tab with a verdict.
@@ -143,7 +165,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       await js(`document.getElementById('bubble').click()`); await wait(300);
       await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(600);
       await js(`document.getElementById('tab-pets').click()`); await wait(400);
-      const forms = await js(`[...document.querySelectorAll('#view-pets .form')].map((f) => f.textContent + (f.getAttribute('aria-current') === 'true' ? '*' : ''))`);
+      const forms = await js(`[...document.querySelectorAll('#view-pets .form')].map((f) => f.textContent + (f.getAttribute('aria-pressed') === 'true' ? '*' : ''))`);
       ok('Pets tab shows all four forms with the unlocked ones named and the rest hidden', forms.length === 4 && forms[0].startsWith('Hatchling') && forms[3].includes('???'), forms.join(' | '));
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(500);
       // ---- "Sync with Claude": type the % Claude shows → the meter re-anchors to it

@@ -39,6 +39,7 @@ function parseLine(line) {
       input: u.input_tokens | 0, output: u.output_tokens | 0,
       cacheWrite: u.cache_creation_input_tokens | 0, cacheRead: u.cache_read_input_tokens | 0,
       ending: !d.isSidechain && !!m.stop_reason && m.stop_reason !== 'tool_use',
+      ttl: u.cache_creation && u.cache_creation.ephemeral_1h_input_tokens > 0 ? '1h' : u.cache_creation && u.cache_creation.ephemeral_5m_input_tokens > 0 ? '5m' : null,
     };
     return ev;
   }

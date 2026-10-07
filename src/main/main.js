@@ -41,12 +41,13 @@ process.on('unhandledRejection', (e) => console.error('unhandled', e));
 // ---------------------------------------------------------------------------------------- helpers
 const publicSettings = () => {
   const d = { ...settings.data };
-  delete d.samples; delete d.calib;
+  delete d.samples; delete d.calib; delete d.spend;
   return d;
 };
 
 let hookCache = { at: 0, v: { installed: false } };
-const hookStatus = () => { if (Date.now() - hookCache.at > 3000) hookCache = { at: Date.now(), v: { installed: !!setup.status().installed } }; return hookCache.v; };
+const hookStatus = () => { if (Date.now() - hookCache.at > 3000) hookCache = { at: Date.now(), v: { installed: !!setup.bridgeStatus().installed, legacy: !!setup.status().installed } }; return hookCache.v; };
+const BRIDGE_SOURCE = path.join(__dirname, '..', '..', 'bridge');
 
 function snapshot() {
   const s = engine.snapshot();
@@ -165,14 +166,25 @@ function setupIpc() {
   ipcMain.handle('settings:set', (_e, patch) => {
     const out = { ok: true };
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, error: 'bad request' };
-    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution'];
+    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality'];
     const clean = {};
     for (const k of allowed) if (Object.prototype.hasOwnProperty.call(patch, k)) clean[k] = patch[k];
     const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'alertBubble', 'speechBubble'];
     for (const k of bool) if (k in clean) clean[k] = !!clean[k];
     if ('theme' in clean && !['auto', 'light', 'dark'].includes(clean.theme)) delete clean.theme;
     if ('finishBy' in clean && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(clean.finishBy))) delete clean.finishBy;
-    if ('evolution' in clean) { const n = Math.round(Number(clean.evolution && clean.evolution.stageSeen)); clean.evolution = Number.isFinite(n) ? { ...settings.get('evolution'), stageSeen: Math.max(1, Math.min(4, n)) } : undefined; if (!clean.evolution) delete clean.evolution; }
+    if ('evolution' in clean) {
+      const e = clean.evolution || {}, next = { ...settings.get('evolution') };
+      const seen = Math.round(Number(e.stageSeen)), disp = Math.round(Number(e.display));
+      if ('stageSeen' in e && Number.isFinite(seen)) next.stageSeen = Math.max(1, Math.min(4, seen));
+      if ('display' in e && Number.isFinite(disp)) next.display = Math.max(0, Math.min(4, disp));
+      clean.evolution = next;
+    }
+    if ('spendLimitUsd' in clean) clean.spendLimitUsd = Math.max(0, Math.min(1e6, Math.round((Number(clean.spendLimitUsd) || 0) * 100) / 100));
+    if ('resetDay' in clean) clean.resetDay = Math.max(1, Math.min(28, Math.round(Number(clean.resetDay)) || 1));
+    if ('layout' in clean && !['dock', 'pills', 'pet'].includes(clean.layout)) delete clean.layout;
+    if ('personality' in clean && !['cheerful', 'playful', 'sleepy', 'grumpy', 'shy'].includes(clean.personality)) delete clean.personality;
+    if ('dock' in clean) { const d = clean.dock || {}, cur = settings.get('dock'); clean.dock = { ...cur }; for (const k of Object.keys(cur)) if (typeof d[k] === 'boolean') clean.dock[k] = d[k]; }
     if ('hotkey' in clean && (typeof clean.hotkey !== 'string' || clean.hotkey.length > 60)) delete clean.hotkey;
     if ('monsters' in clean && (!clean.monsters || typeof clean.monsters !== 'object')) delete clean.monsters;
     if ('window' in clean) { const w = clean.window || {}; clean.window = {}; for (const k of ['x', 'y']) if (Number.isFinite(w[k])) clean.window[k] = Math.round(w[k]); if (typeof w.expanded === 'boolean') clean.window.expanded = w.expanded; if (['usage', 'plan', 'pets', 'settings'].includes(w.tab)) clean.window.tab = w.tab; }
@@ -194,14 +206,9 @@ function setupIpc() {
   });
 
   ipcMain.handle('usage:setReading', (_e, id, pct) => { const ok = engine.setManualReading(String(id), Number(pct)); send('state', snapshot()); return { ok }; });
-  ipcMain.handle('setup:status', () => setup.status());
-  ipcMain.handle('setup:connect', () => {
-    const hookSource = path.join(__dirname, '..', '..', 'scripts', 'statusline-hook.js');
-    const r = setup.install({ hookSource, execPath: process.execPath });
-    hookCache.at = 0; send('state', snapshot());
-    return r;
-  });
-  ipcMain.handle('setup:disconnect', () => { const r = setup.uninstall(); hookCache.at = 0; send('state', snapshot()); return r; });
+  ipcMain.handle('setup:status', () => setup.bridgeStatus());
+  ipcMain.handle('setup:connect', () => { const r = setup.installBridge({ bridgeSource: BRIDGE_SOURCE }); hookCache.at = 0; send('state', snapshot()); return r; });
+  ipcMain.handle('setup:disconnect', () => { const r = setup.uninstallBridge(); setup.uninstall(); hookCache.at = 0; send('state', snapshot()); return r; });
   ipcMain.handle('sources', () => transcriptRoots().map((r) => ({ dir: r.dir, source: r.source })));
 
   // Layout: the renderer owns sizes; we anchor the pet so it never jumps when the panel opens/closes.
@@ -269,6 +276,7 @@ else {
     if (settings.get('hotkey') === 'CommandOrControl+Shift+L') settings.set({ hotkey: 'CommandOrControl+Alt+Shift+L' });
     registerHotkey(settings.get('hotkey')) || console.warn('hotkey unavailable');
     setup.refreshHook({ hookSource: path.join(__dirname, '..', '..', 'scripts', 'statusline-hook.js') });
+    setup.refreshBridge({ bridgeSource: BRIDGE_SOURCE });
     const reclamp = () => { if (win && !win.isDestroyed()) win.setBounds(clampToWork(win.getBounds())); };
     screen.on('display-removed', reclamp); screen.on('display-metrics-changed', reclamp);
 

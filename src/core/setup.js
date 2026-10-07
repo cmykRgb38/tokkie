@@ -112,3 +112,84 @@ function refreshHook({ hookSource, opts = {} }) {
 }
 
 module.exports = { MARKER, settingsPath, status, install, uninstall, hookCommand, refreshHook, findNode };
+
+// ---------------------------------------------------------------------------------------- the Claude Code bridge
+/*
+ * The bridge is a tiny read-only Claude Code plugin (bridge/ in this repo) that writes the session's exact cost, context
+ * and plan limits to ~/.tokkie. Claude Code loads plugins from the folders listed in CLAUDE_CODE_PLUGIN_DIRS, which we add
+ * to the `env` block of its settings.json — one entry, backed up first, removed again on Disconnect.
+ */
+const BRIDGE_DIR = 'claude-bridge';
+const ENV_KEY = 'CLAUDE_CODE_PLUGIN_DIRS';
+const bridgeTarget = (opts = {}) => path.join(tokkieHome(opts.env, opts.home), BRIDGE_DIR);
+const splitDirs = (v) => String(v || '').split(path.delimiter).map((x) => x.trim()).filter(Boolean);
+
+/** Copy a folder file by file (works out of the packaged app's asar archive too). Skips tests. */
+function copyTree(src, dst) {
+  fs.mkdirSync(dst, { recursive: true });
+  for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+    if (ent.name === 'tests' || ent.name === 'node_modules') continue;
+    const a = path.join(src, ent.name), b = path.join(dst, ent.name);
+    if (ent.isDirectory()) copyTree(a, b);
+    else { const data = fs.readFileSync(a); let same = false; try { same = fs.readFileSync(b).equals(data); } catch { /* new */ } if (!same) fs.writeFileSync(b, data); }
+  }
+}
+
+function bridgeStatus(opts = {}) {
+  const file = settingsPath(opts), dir = bridgeTarget(opts);
+  let s;
+  try { s = readJson(file); } catch (e) { return { file, installed: false, error: e.code === 'ENOENT' ? null : 'unparseable' }; }
+  const dirs = splitDirs(isPlainObject(s.env) ? s.env[ENV_KEY] : '');
+  return { file, installed: dirs.includes(dir) && fs.existsSync(path.join(dir, 'hooks', 'register.ts')) };
+}
+
+function installBridge({ bridgeSource, opts = {} }) {
+  try {
+    const file = settingsPath(opts), dir = bridgeTarget(opts);
+    let s = {};
+    if (fs.existsSync(file)) {
+      try { s = readJson(file); } catch { return { ok: false, error: `Couldn't parse ${file}. Fix its JSON, then try again — I won't overwrite it.` }; }
+      const bak = file + '.tokkie-backup';
+      if (!fs.existsSync(bak)) fs.copyFileSync(file, bak);
+    }
+    copyTree(bridgeSource, dir);
+    // The old status-line connection never runs in the desktop app; the bridge replaces it, so put the user's own status line back.
+    if (isPlainObject(s.statusLine) && String(s.statusLine.command).includes(MARKER)) {
+      let prev = null;
+      try { prev = readJson(path.join(tokkieHome(opts.env, opts.home), 'statusline.json')).previous; } catch { /* none */ }
+      if (prev) s.statusLine = prev; else delete s.statusLine;
+    }
+    const env = isPlainObject(s.env) ? s.env : {};
+    const dirs = splitDirs(env[ENV_KEY]);
+    if (!dirs.includes(dir)) dirs.push(dir);
+    s.env = { ...env, [ENV_KEY]: dirs.join(path.delimiter) };
+    writeJsonAtomic(file, s);
+    return { ok: true, file };
+  } catch (e) { return { ok: false, error: `Couldn't update Claude Code's settings (${e.code || e.message}). Nothing was changed.` }; }
+}
+
+function uninstallBridge({ opts = {} } = {}) {
+  try {
+    const file = settingsPath(opts), dir = bridgeTarget(opts);
+    let s;
+    try { s = readJson(file); } catch { return { ok: true, file }; }
+    if (isPlainObject(s.env) && ENV_KEY in s.env) {
+      const dirs = splitDirs(s.env[ENV_KEY]).filter((d) => d !== dir);
+      if (dirs.length) s.env[ENV_KEY] = dirs.join(path.delimiter); else delete s.env[ENV_KEY];
+      if (!Object.keys(s.env).length) delete s.env;
+      writeJsonAtomic(file, s);
+    }
+    return { ok: true, file };
+  } catch (e) { return { ok: false, error: `Couldn't restore Claude Code's settings (${e.code || e.message}).` }; }
+}
+
+/** After an app update, keep the installed bridge's files current (only when it is installed). */
+function refreshBridge({ bridgeSource, opts = {} }) {
+  try { if (bridgeStatus(opts).installed) copyTree(bridgeSource, bridgeTarget(opts)); } catch { /* best effort */ }
+}
+
+module.exports.bridgeStatus = bridgeStatus;
+module.exports.installBridge = installBridge;
+module.exports.uninstallBridge = uninstallBridge;
+module.exports.refreshBridge = refreshBridge;
+module.exports.bridgeTarget = bridgeTarget;

@@ -46,7 +46,8 @@ function compute(limits, store, calib, now = Date.now()) {
   const tsOf = (w) => { const t = w && Number.isFinite(w.updated_at) ? w.updated_at : limits.updated_at; return Number.isFinite(t) ? t * 1000 : NaN; };
   const five = windowStatus(limits.five_hour, 5 * 3600e3, store, calib && calib.five, tsOf(limits.five_hour), now);
   const seven = windowStatus(limits.seven_day, 7 * 86400e3, store, calib && calib.seven, tsOf(limits.seven_day), now);
-  return { connected: !!(five || seven), updatedAt: Math.max(five ? tsOf(limits.five_hour) : 0, seven ? tsOf(limits.seven_day) : 0), five, seven };
+  const spend = windowStatus(limits.spend_limit, 30 * 86400e3, store, calib && calib.spend, tsOf(limits.spend_limit), now);
+  return { connected: !!(five || seven || spend), updatedAt: Math.max(five ? tsOf(limits.five_hour) : 0, seven ? tsOf(limits.seven_day) : 0, spend ? tsOf(limits.spend_limit) : 0), five, seven, spend };
 }
 
 module.exports = { readLimits, compute, windowStatus };

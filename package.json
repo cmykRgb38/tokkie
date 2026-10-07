@@ -1,7 +1,7 @@
 {
   "name": "tokkie",
   "productName": "Tokkie",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A tiny desktop pet that tracks your Claude usage live and tells you how long your next prompt will take.",
   "main": "src/main/main.js",
   "author": "Tokkie contributors",
@@ -29,6 +29,8 @@
     "files": [
       "src/**/*",
       "scripts/statusline-hook.js",
+      "bridge/.claude-plugin/**/*",
+      "bridge/hooks/**/*",
       "assets/**/*",
       "package.json"
     ],
