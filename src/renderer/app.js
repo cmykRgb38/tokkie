@@ -251,6 +251,18 @@ function checkFit(S) {
   }
   lastNextFit = st;
 }
+/** The Claude bar is one row: shortest wording of each item (the icon says what it is). */
+function barText(l) {
+  const v = String(l.value);
+  if (l.k === 'usage') return v.replace(/\/\d+$/, '');                       // ≈58% · $115/200 → ≈58% · $115
+  if (l.k === 'pace') return v.replace(/^out ~\w{3} /, 'out ');               // out ~Mon 12 Oct → out 12 Oct
+  if (l.k === 'status') return v.replace(/ · (\d+\w*)( \d+s)? ago$/, ' $1');   // Done · 1m 19s ago → Done 1m
+  if (l.k === 'context') return v.replace(/ · \d+%$/, '');
+  if (l.k === 'cache') return v.replace(' left', '');
+  if (l.k === 'agents') return v.replace(' running', '');
+  return v;
+}
+
 /** Your pet as a tiny crisp SVG, for the Claude bar (cropped to the sprite; redrawn only when the pet or its form changes). */
 let avatarKey = '', avatarSvg = '';
 function petAvatar() {
@@ -337,7 +349,7 @@ function render() {
   if (lines) renderDock(lines);
   applyLayout();
   const inClaude = !!lines && place === 'claude';
-  bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: l.label, value: l.value, tone: l.tone })), alert: bandAlert(S), avatar: inClaude ? petAvatar() : '' });
+  bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: l.label, value: barText(l), tone: l.tone })), alert: bandAlert(S), avatar: inClaude ? petAvatar() : '' });
   chip.textContent = d.chipText; chip.dataset.k = d.chipK;
 
   if (mode === 'expanded') { for (const t of TABS) if (t === tab) views[t].update(S); }

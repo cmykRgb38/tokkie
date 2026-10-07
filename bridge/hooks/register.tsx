@@ -163,24 +163,25 @@ export const register: Register = on => {
     const chip = (key: string, k: string, value: string, tone: string | undefined, label: string) => {
       const color = tone ? TONE[tone] : undefined
       return Svg ? (
-        <Box key={key} flexDirection="row" alignItems="center" columnGap={1} borderStyle="round" borderColor={color || NEUTRAL} paddingX={1}>
-          <Svg source={icon(k, color || INK)} alt={label} width={14} height={14} />
-          <Text bold color={color} wrap="truncate">{value}</Text>
+        <Box key={key} flexDirection="row" flexShrink={0} alignItems="center" columnGap={1} borderStyle="round" borderColor={color || NEUTRAL} paddingX={1} paddingY={0}>
+          <Svg source={icon(k, color || INK)} alt={label} width={12} height={12} />
+          <Text color={color} wrap="truncate">{value}</Text>
         </Box>
       ) : (
         <Text key={key} wrap="truncate"><Text color={color || NEUTRAL}>{GLYPH[k] || '•'} </Text><Text bold color={color}>{value}</Text></Text>
       )
     }
     return (
-      <Box flexDirection="column" rowGap={Svg ? 1 : 0}>
+      <Box flexDirection="column" rowGap={0}>
         {b.alert ? (
           <Box flexDirection="row" alignItems="center" columnGap={1}>
             {Svg ? <Svg source={icon('alert', TONE.bad as string)} alt="Warning" width={14} height={14} /> : <Text color={TONE.bad}>!</Text>}
             <Text color={TONE.bad} bold wrap="truncate">{b.alert}</Text>
           </Box>
         ) : null}
-        <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={Svg ? 1 : 2} rowGap={Svg ? 1 : 0}>
-          {Svg && b.avatar ? <Svg source={b.avatar} alt="Tokkie" width={22} height={22} /> : <Text bold>Tokkie</Text>}
+        {/* one row, never wrapping: chips that don't fit are clipped at the right edge */}
+        <Box flexDirection="row" flexWrap="nowrap" overflow="hidden" alignItems="center" columnGap={1}>
+          {Svg && b.avatar ? <Svg source={b.avatar} alt="Tokkie" width={16} height={16} /> : <Text bold>Tokkie</Text>}
           {b.items.map((it, i) => chip(String(i), it.k, it.value, it.tone, it.label))}
         </Box>
       </Box>
