@@ -14,6 +14,15 @@ const HOP = [0, 2, 3, 3, 2, 1, 0, 1, 0, 0];
 const BANG = ['##', '##', '##', '##', '..', '##'];
 const QMARK = ['.##.', '#..#', '..#.', '.#..', '....', '.#..'];
 export const EMOTES = ['done', 'playful', 'love', 'surprised', 'angry', 'bored', 'sleep'];
+/* Personality: how the pet behaves when nothing is happening — its resting face, how often it plays on its own,
+   how it takes being petted (hover) and poked, and how quickly it gets bored / falls asleep while you're away. */
+export const PERSONALITY = {
+  cheerful: { play: [30e3, 70e3], idleEmote: 'playful', hover: 'love', hoverMs: 2200, pokes: 5, poke: 'surprised', boredMin: 6, sleepMin: 20 },
+  playful: { play: [10e3, 25e3], idleEmote: 'playful', hover: 'playful', hoverMs: 1200, pokes: 9, poke: 'playful', boredMin: 12, sleepMin: 40 },
+  sleepy: { play: [40e3, 80e3], idleEmote: 'bored', hover: 'love', hoverMs: 3200, pokes: 6, poke: 'surprised', boredMin: 2, sleepMin: 7 },
+  grumpy: { play: [70e3, 140e3], idleEmote: 'angry', hover: 'love', hoverMs: 4500, pokes: 3, poke: 'angry', boredMin: 5, sleepMin: 25 },
+  shy: { play: [50e3, 100e3], idleEmote: 'love', hover: 'love', hoverMs: 3800, pokes: 5, poke: 'surprised', boredMin: 8, sleepMin: 20 },
+};
 // Emotes that only make sense when the pet isn't busy working.
 const IDLE_ONLY = new Set(['love', 'playful', 'bored']);
 
@@ -27,6 +36,7 @@ export class Pet {
     this.particles = []; this.look = { x: 0, y: 0 }; this.hopT = -1; this.blinkAt = 2500; this.blinkUntil = 0;
     this.intensity = 1; this.timer = null; this.visible = true;
     this.clicks = []; this.nextPlay = performance.now() + 25000 + Math.random() * 25000;
+    this.persona = 'cheerful'; this.P = PERSONALITY.cheerful; this.hovered = false;
     this.fit();
   }
 
@@ -48,6 +58,11 @@ export class Pet {
     if (!this.spec) return;
     if (reduce.matches) { this.setForm(stage, fat); return; }
     this.evo = { t: 0, stage, fat, from: this.spec };
+  }
+  setPersonality(id) {
+    if (id === this.persona || !PERSONALITY[id]) return;
+    this.persona = id; this.P = PERSONALITY[id];
+    this.nextPlay = performance.now() + this.P.play[0] * 0.5;
   }
   /** Unlocked-form teaser: draw as a dark silhouette. */
   setLocked(v) { this.locked = v; this.draw(); }
@@ -76,8 +91,9 @@ export class Pet {
   poke() {
     const now = performance.now();
     this.clicks = this.clicks.filter((t) => now - t < 3200); this.clicks.push(now);
-    if (this.clicks.length >= 5) { this.clicks = []; this.emote('angry', 3200); }
-    else this.emote('surprised', 1100);
+    if (this.clicks.length >= this.P.pokes) { this.clicks = []; this.emote('angry', 3200); }
+    else if (this.P.poke === 'playful') { this.override = null; this.emote('playful', 1600) || this.emote('surprised', 1100); }   // giggles
+    else this.emote(this.P.poke, this.P.poke === 'angry' ? 1300 : 1100);
   }
   celebrate() { this.hopT = 0; if (!reduce.matches) for (let i = 0; i < 7; i++) this.spark(); }
   lookAt(v) { this.look = v; }
@@ -143,7 +159,12 @@ export class Pet {
       if (m === 'done' && t % 3 === 0 && this.hopT >= 0) this.spark();
       if (m === 'alert' && t % 10 === 0) this.hopT = 0;                  // keeps hopping until you notice
       // Idle personality: now and then it gets playful on its own.
-      if (this.base === 'idle' && !this.override && now > this.nextPlay) { this.emote('playful', 3600); this.nextPlay = now + 30000 + Math.random() * 40000; }
+      if (this.base === 'idle' && !this.override && !this.hovered && now > this.nextPlay) {
+        const [a, b] = this.P.play, e = this.P.idleEmote;
+        if (e === 'angry') this.override = { mood: 'angry', until: now + 1600 };     // a short huff, not a tantrum
+        else this.emote(e, e === 'bored' ? 4200 : 3600);
+        this.nextPlay = now + a + Math.random() * (b - a);
+      }
     }
     if (m === 'playful' && t % 9 === 0) this.hopT = 0;
     if (this.hopT >= 0) { this.hopT++; if (this.hopT > 9) this.hopT = -1; }
@@ -172,7 +193,17 @@ export class Pet {
       case 'playful': p.eye = t % 8 < 5 ? 'wink' : 'open'; p.mouth = 'tongue'; p.bob = still ? 0 : (t % 4 < 2 ? 0 : -1); p.frame = t % 4 < 2 ? 0 : 1; break;
       case 'surprised': p.eye = 'wide'; p.mouth = 'o'; p.bob = -1; break;
       case 'love': p.eye = 'love'; p.mouth = 'smile'; p.bob = still ? 0 : (t % 8 < 4 ? 0 : -1); break;
-      default: p.bob = still ? 0 : (t % 12 < 6 ? 0 : -1); break;
+      default: {                                                     // resting face depends on personality
+        const pk = this.persona;
+        if (pk === 'playful') { p.bob = still ? 0 : (t % 6 < 3 ? 0 : -1); if (t % 50 > 45) p.eye = 'wink'; }
+        else if (pk === 'sleepy') { p.eye = t % 60 > 50 || blinking ? 'closed' : 'bored'; p.bob = still ? 0 : (t % 24 < 12 ? 0 : -1); }
+        else if (pk === 'grumpy') { p.eye = blinking ? 'closed' : 'angry'; p.mouth = 'flat'; p.bob = 0; }
+        else if (pk === 'shy') {                                   // won't meet your eye: glances away and down, more so while you hover
+          const lx = this.look.x; p.look = { x: lx > 0.3 ? -1 : lx < -0.3 ? 1 : 0, y: 1 }; p.bob = still ? 0 : (t % 16 < 8 ? 0 : -1);
+          if (this.hovered && t % 30 > 24) p.eye = 'closed';
+        } else p.bob = still ? 0 : (t % 12 < 6 ? 0 : -1);
+        break;
+      }
     }
     return p;
   }

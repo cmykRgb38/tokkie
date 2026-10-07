@@ -35,8 +35,16 @@ function meterNode(title, id, api) {
         : m.source === 'manual' && age < 90 ? 'from you · just now'
         : m.approx && m.baseline != null ? `live estimate · ${who} ${fmtPct(m.baseline)}% ${fmtDur(age)} ago`
         : age < 90 ? 'just now' : `Claude's last reading ${fmtDur(age)} ago`;
-      const parts = [el('span', { text: note, title: m.approx ? 'Claude only saves a reading now and then. Tokkie adds what you have used since, calibrated against Claude’s earlier readings.' : '' })];
+      const how = m.mode === 'dollars' ? 'Claude only saves a reading now and then. Since then, Claude Code spend is exact (from the bridge); Cowork and Chat are estimated from tokens.'
+        : m.approx ? 'Claude only saves a reading now and then. Tokkie adds what you have used since, calibrated against Claude’s earlier readings.' : '';
+      const parts = [el('span', { text: note, title: how })];
+      if (m.limitUsd) parts.push(el('span', { class: 'val', text: `$${m.usd.toFixed(2)} of $${Math.round(m.limitUsd)}` }));
       if (m.resetsAt && m.resetsAt > now) parts.push(el('span', { text: `resets in ${fmtDur((m.resetsAt - now) / 1000)}` }));
+      if (m.pace) {
+        const p = m.pace, out = p.runOutAt ? new Date(p.runOutAt).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : null;
+        const txt = out ? `At this pace you run out ~${out}` : p.pace > 0 ? `Using ${Math.round(p.pace)}% faster than the clock` : `On pace · ${Math.round(-p.pace)}% to spare`;
+        parts.push(el('span', { class: 'pace', 'data-k': p.tone, text: txt, title: `${fmtPct(m.pct)}% used, ${Math.round(p.elapsed)}% of this period gone` }));
+      }
       foot.replaceChildren(...parts);
     },
   };
@@ -51,7 +59,7 @@ export function usageView(root, api) {
     el('div', { class: 'row' }, el('span'), el('button', { class: 'btn sm primary', type: 'button', text: 'Got it', onclick: () => api.dismissWelcome() })));
 
   const nodes = new Map();                 // meter id → component (kept so bars animate instead of re-mounting)
-  const connectMsg = el('p'); const connectBtn = el('button', { class: 'btn primary', type: 'button' }, icon('plug'), 'Connect Claude Code');
+  const connectMsg = el('p'); const connectBtn = el('button', { class: 'btn primary', type: 'button' }, icon('plug'), 'Connect the bridge');
   const connectErr = el('p', { class: 'muted', hidden: true, style: 'color:var(--bad)' });
   const connect = el('div', { class: 'connect' }, el('strong', { text: 'Show your plan usage' }), connectMsg, connectBtn, connectErr);
   connectBtn.addEventListener('click', async () => {
@@ -59,8 +67,8 @@ export function usageView(root, api) {
     let r; try { r = await api.connect(); } catch { r = { ok: false, error: 'Something went wrong — nothing was changed.' }; } finally { connectBtn.disabled = false; }
     connectErr.hidden = r.ok; if (!r.ok) connectErr.textContent = r.error;
   });
-  const waiting = el('div', { class: 'connect', style: 'border-style:solid;border-color:var(--accent)' }, el('strong', { text: '✓ Connected — waiting for the first reading' }),
-    el('p', { text: 'Your plan percentage appears after the next reply in Claude Code running in a terminal or your IDE. Until then I’m showing token counts only.' }),
+  const waiting = el('div', { class: 'connect', style: 'border-style:solid;border-color:var(--accent)' }, el('strong', { text: '✓ Bridge connected — waiting for a reading' }),
+    el('p', { text: 'Start a new Claude Code session: the bridge reports exact cost straight away, and plan % where your plan provides it. Open Claude’s desktop app (Settings → Usage) to give me a percentage to start from.' }),
     el('button', { class: 'btn sm quiet', type: 'button', text: 'Disconnect', onclick: () => api.disconnect() }));
 
   const vToday = el('div', { class: 'v' }), vFive = el('div', { class: 'v' }), vBurn = el('div', { class: 'v' });
@@ -89,7 +97,7 @@ export function usageView(root, api) {
       }
       if (!meters.length) {
         if (S.hook && S.hook.installed) list.push(waiting);
-        else { connectMsg.textContent = 'One click adds a tiny status-line hook so Tokkie can show how much of your plan you’ve used. You can undo it any time in Settings.'; list.push(connect); }
+        else { connectMsg.textContent = 'Open Claude’s desktop app once so I can read its usage readings, or connect the Claude Code bridge for exact cost. You can undo it any time in Settings.'; list.push(connect); }
       }
       const ids = meters.map((m) => m.id).join() + (meters.length ? '' : S.hook && S.hook.installed ? 'w' : 'c');
       if (ids !== lastIds || metersBox.childElementCount !== list.length) { metersBox.replaceChildren(...list); lastIds = ids; }

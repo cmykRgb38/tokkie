@@ -25,9 +25,12 @@
 </svg>
 
 <div id="app" class="below" data-mode="collapsed">
-  <div id="stage" data-hit role="button" tabindex="0" aria-label="Tokkie — open or close the panel" aria-expanded="false">
-    <div id="bubble" class="bubble" role="alert" hidden><span class="bang" aria-hidden="true">!</span><span class="btext"><b id="bubbleTitle"></b><small id="bubbleSub"></small></span></div>
-    <canvas id="pet" aria-hidden="true"></canvas>
+  <div id="petrow">
+    <div id="stage" data-hit role="button" tabindex="0" aria-label="Tokkie — open or close the panel" aria-expanded="false">
+      <div id="bubble" class="bubble" role="alert" hidden><span class="bang" aria-hidden="true">!</span><span class="btext"><b id="bubbleTitle"></b><small id="bubbleSub"></small></span></div>
+      <canvas id="pet" aria-hidden="true"></canvas>
+    </div>
+    <div id="dock" class="dock" data-hit role="status" aria-label="Usage at a glance" hidden></div>
   </div>
   <div id="pills" class="pills" data-hit role="status" aria-live="polite"></div>
 

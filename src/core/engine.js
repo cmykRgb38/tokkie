@@ -14,11 +14,16 @@ const { buildMeters } = require('./meters');
 const { tokensPer100, liveEstimate } = require('./calibrate');
 const { evolutionFor } = require('./evolution');
 const { headline } = require('./parser');
+const { SpendLedger } = require('./spend');
+const { BridgeReader } = require('./bridge');
+const { paceOf } = require('./pace');
 
 /**
  * Everything the UI needs, with no Electron dependency (so it is testable and reusable).
  * Emits 'change' (data changed), 'turn-end' ({duration, tokens}) for live-finished turns.
  */
+const startOfDay = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+
 class Engine extends EventEmitter {
   constructor({ settings, now = Date.now, roots, env = process.env, home = os.homedir(), desktopDirs } = {}) {
     super();
@@ -26,6 +31,8 @@ class Engine extends EventEmitter {
     this.settings = settings; this.now = now; this.env = env; this.home = home;
     this.store = new Store({ now });
     this.limitsFile = path.join(tokkieHome(env, home), 'rate_limits.json');
+    this.bridge = new BridgeReader(path.join(tokkieHome(env, home), 'bridge'));
+    this.ledger = new SpendLedger(settings, now);
     this.limitsMtime = 0; this.limits = null;
     this.desktopMtime = -1; this.desktop = null; this.desktopK = {}; this.calibAt = 0; this.pending = [];   // pending = recent estimates, matched to the run they predicted
     this.loaded = false;
@@ -48,16 +55,17 @@ class Engine extends EventEmitter {
     this.store.prune();
     this.loaded = true;
     this._readLimits();
+    this._readBridge();
     this._readDesktop();
     this._calibrate();                // the first scan has just finished: now the ledger can be compared with Claude's readings
     this._persistSamples();
     this.store.onSample = (s) => { this._attachEstimate(s); this._persistSamples(); this.emit('turn-end', { duration: s.duration, tokens: s.tokens }); };
     this.tailer.start();
-    this.tick = setInterval(() => { this._readLimits(); this._readDesktop(); this.store.prune(); }, 2000);
+    this.tick = setInterval(() => { this._readLimits(); this._readBridge(); this._readDesktop(); this.store.prune(); }, 2000);
     this.tick.unref?.();
     this.emit('change');
   }
-  stop() { this.tailer.stop(); clearInterval(this.tick); this.settings.save(); }
+  stop() { this.tailer.stop(); clearInterval(this.tick); this.ledger.flush(); this.settings.save(); }
 
   _onLive(evs) {
     for (const e of evs) this.store.ingest(e);
@@ -70,6 +78,29 @@ class Engine extends EventEmitter {
     if (!cand) return;
     s.est = { dur: cand.dur, head: cand.head };
     this.pending = this.pending.filter((p) => p !== cand);
+  }
+
+  /** What the bridge reported from inside Claude Code: exact running cost per session (→ the spend ledger), context, agents. */
+  _readBridge() {
+    const changed = this.bridge.poll(this.now());
+    for (const r of changed) if (r.costUsd != null) this.ledger.observe('code:' + r.sessionId, r.costUsd, r.updatedAt);
+    if (changed.length) { this._snapKey = null; this.emit('change'); }
+  }
+
+  /**
+   * Live % for a meter, starting from Claude's last reading. With a dollar limit set and the bridge running since that
+   * reading, Claude Code's part is exact dollars; everything else (Cowork, Chat, Code without the bridge) is estimated from tokens.
+   */
+  _live(id, reading, now) {
+    const k = this.desktopK[id];
+    const limit = this.settings.get('spendLimitUsd') || 0;
+    if (id === 'extra' && limit > 0 && reading && this.ledger.covers(reading.t)) {
+      const usd = this.ledger.since(reading.t + 1);
+      const rest = k ? (this.store.sumSince(reading.t + 1, now, this.ledger.sessions()).weighted / k) * 100 : 0;
+      const added = (usd / limit) * 100 + rest;
+      return { pct: Math.min(100, reading.pct + added), baseline: reading.pct, added, mode: 'dollars', exactUsd: usd };
+    }
+    return liveEstimate(reading, k, this.store, now);
   }
 
   _persistSamples() { this.settings.set({ samples: this.store.samples.slice(-300) }); }
@@ -138,8 +169,10 @@ class Engine extends EventEmitter {
   }
 
   /** Newest finished runs with their actual cost, and how the estimate (if one was made) held up. */
-  recentRuns(n = 8) {
-    return this.store.samples.slice(-n).reverse().map((s) => ({ start: s.start, chars: s.chars, duration: s.duration, headline: s.headline || 0, tokens: s.tokens, est: s.est || null }));
+  recentRuns(n = 8, turns = []) {
+    // A run's exact cost: the bridge's per-prompt cost from the same session, recorded as that run finished.
+    const usdFor = (s) => { const end = s.start + s.duration * 1000; const t = turns.find((x) => x.sessionId === s.sessionId && Math.abs(x.at - end) < 30e3); return t ? t.usd : null; };
+    return this.store.samples.slice(-n).reverse().map((s) => ({ start: s.start, chars: s.chars, duration: s.duration, headline: s.headline || 0, tokens: s.tokens, est: s.est || null, usd: usdFor(s) }));
   }
 
   snapshot(now = this.now()) {
@@ -157,8 +190,25 @@ class Engine extends EventEmitter {
     const fallback = !lim.connected && budget > 0 ? { budget, usedPct: Math.min(100, (t.last5h.weighted / budget) * 100) } : null;
     const active = this.store.activeTurn(now);
     if (now - this.calibAt > 600e3) this._calibrate();
-    const live = (id, reading) => liveEstimate(reading, this.desktopK[id], this.store, now);
+    const live = (id, reading) => this._live(id, reading, now);
     const meters = buildMeters({ statusline: lim, desktop: this._mergedDesktop(), fallback, now, live });
+    const limitUsd = this.settings.get('spendLimitUsd') || 0, resetDay = this.settings.get('resetDay') || 1;
+    for (const m of meters) {
+      if (m.id === 'five' && !m.resetsAt && t.block) m.resetsAt = t.block.end;      // our own guess at the 5-hour window
+      if ((m.id === 'extra' || m.id === 'spend') && limitUsd > 0) { m.limitUsd = limitUsd; m.usd = (m.pct / 100) * limitUsd; }
+      m.pace = paceOf(m, resetDay, now);
+    }
+    const br = this.bridge.latest();
+    const fresh = br && now - br.updatedAt < 15 * 60e3 ? br : null;
+    const cache = this.store.cacheView(now);
+    const ctx = fresh && Number.isFinite(fresh.context.tokens) && (!cache || fresh.sessionId === cache.sessionId)
+      ? { tokens: fresh.context.tokens, window: fresh.context.window || null, percent: Number.isFinite(fresh.context.percent) ? fresh.context.percent : null, exact: true }
+      : cache ? { tokens: cache.ctxTokens, window: null, percent: null, exact: false } : null;
+    const recent = this.store.samples.slice(-20).map((x) => x.tokens).filter((x) => x > 0).sort((a, b) => a - b);
+    const typical = recent.length >= 3 ? { p50: recent[Math.floor(recent.length / 2)], p75: recent[Math.floor(recent.length * 0.75)] } : null;
+    const nextFit = typical ? this._fit(typical, meters, now) : null;
+    const turns = this.bridge.allTurns();
+    const lastPrompt = turns.length ? turns[turns.length - 1] : null;
     const eta = active ? predict(this.store.samples, '', active.chars, { prev: active.prev || 0, hint: active.hint }).duration : null;
     return {
       now, loaded: this.loaded, eta,
@@ -167,10 +217,31 @@ class Engine extends EventEmitter {
       spark: t.spark,
       limits: lim, fallback, block: t.block,
       meters, desktopSeen: !!this.desktop, manualCount: (this.settings.get('manualReadings') || []).length, evolution: evolutionFor(this.eaten()),
-      runs: this.recentRuns(8), k5: (this.settings.get('calib').five || {}).k || null,
+      nextFit, cache, context: ctx, agents: fresh ? fresh.agentsRunning : 0, lastPrompt,
+      bridge: { seen: !!br, live: !!fresh, since: this.ledger.state.bridgeSince || 0, todayUsd: this.ledger.since(startOfDay(now)) },
+      runs: this.recentRuns(8, turns), k5: (this.settings.get('calib').five || {}).k || null,
       samples: this.store.samples.length,
       files: this.tailer.files.size,
     };
+  }
+
+  /**
+   * Will a prompt of this size fit in what's left? Checked against every limit we can convert tokens into %
+   * (5-hour, weekly, usage/spend), and the tightest one wins. need = predicted tokens ÷ tokens-per-100%.
+   */
+  _fit(tokens, meters, now) {
+    let worst = null;
+    for (const m of meters || []) {
+      if (!Number.isFinite(m.pct) || m.id === 'budget') continue;
+      const k = m.id === 'five' ? ((this.settings.get('calib').five || {}).k || this.desktopK.five) : this.desktopK[m.id];
+      const left = Math.max(0, 100 - m.pct);
+      if (!k && left > 0) continue;
+      const need = k ? { p50: (tokens.p50 / k) * 100, p75: (tokens.p75 / k) * 100 } : { p50: 0, p75: 0 };
+      const status = left <= 0.05 || need.p50 >= left ? 'no' : need.p75 >= left ? 'risky' : 'ok';
+      const f = { id: m.id, label: m.label, left, need, status, usd: m.limitUsd ? { left: (left / 100) * m.limitUsd, p50: (need.p50 / 100) * m.limitUsd, p75: (need.p75 / 100) * m.limitUsd } : null };
+      if (!worst || f.left - f.need.p75 < worst.left - worst.need.p75) worst = f;
+    }
+    return worst;
   }
 
   _remember(chars, pred, now) {
@@ -194,7 +265,8 @@ class Engine extends EventEmitter {
     this._remember(chars, pred, now);
     const k = (this.settings.get('calib').five || {}).k;
     const share = k ? { lo: (pred.tokens.p25 / k) * 100, mid: (pred.tokens.p50 / k) * 100, hi: (pred.tokens.p75 / k) * 100 } : null;
-    return { chars, promptTokens: estimateTokens(text), duration: pred.duration, tokens: pred.tokens, headline: pred.headline, share, confidence: pred.confidence, n: pred.n, method: pred.method, plan, finishBy, now };
+    const fit = this._fit(pred.tokens, this.snapshot(now).meters, now);
+    return { chars, promptTokens: estimateTokens(text), duration: pred.duration, tokens: pred.tokens, headline: pred.headline, share, fit, confidence: pred.confidence, n: pred.n, method: pred.method, plan, finishBy, now };
   }
 }
 

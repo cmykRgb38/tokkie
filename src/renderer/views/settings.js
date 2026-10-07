@@ -20,6 +20,34 @@ export function settingsView(root, api) {
     const b = el('div', { class: 'seg', role: 'group' }, opts.map(([v, l]) => el('button', { type: 'button', 'data-v': String(v), 'aria-pressed': 'false', text: l, onclick: () => api.setSettings({ [key]: parse(v) }) })));
     return { node: b, set(val) { b.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === String(val)))); } };
   };
+  const layout = mkSeg([['dock', 'Dock'], ['pills', 'Pills'], ['pet', 'Pet only']], 'layout');
+  const DOCK_ITEMS = [['usage', 'Usage %', 'Your main limit, live (≈ = estimated since Claude’s last reading).'], ['pace', 'Pace', 'Ahead of or behind the clock, and when you’d run out.'],
+    ['status', 'Status', 'Working / done / idle.'], ['tokens', 'Tokens today', 'Claude Code + Cowork.'], ['lastPrompt', 'Last prompt cost', 'Exact $ of your last Claude Code prompt (needs the bridge).'],
+    ['context', 'Context', 'How full the current conversation is.'], ['cache', 'Cache timer', 'Minutes left on the prompt cache — reply before it expires to save tokens.'], ['agents', 'Agents', 'Sub-agents running (needs the bridge).']];
+  const dockToggles = DOCK_ITEMS.map(([k, l, d]) => {
+    const sw = el('button', { class: 'switch', type: 'button', role: 'switch', 'aria-label': l, 'aria-checked': 'false' });
+    // the same items drive the Dock and the Pills; each layout remembers its own picks
+    sw.addEventListener('click', () => { const key = S.settings.layout === 'pills' ? 'pills' : 'dock'; api.setSettings({ [key]: { ...S.settings[key], [k]: sw.getAttribute('aria-checked') !== 'true' } }); });
+    return { k, sw, row: el('div', { class: 'row sub', title: d }, el('div', { class: 't', text: l }), sw) };
+  });
+  const place = mkSeg([['below', 'Below'], ['above', 'Above'], ['claude', 'Claude bar']], 'dockPlace');
+  const placeNote = el('div', { class: 'd', style: 'max-width:none;padding:0 0 6px 12px' });
+  const placeRow = el('div', { class: 'row sub' }, el('div', { class: 't', text: 'Position' }), place.node);
+  const itemsTitle = el('div', { class: 'd', text: 'Shown' });
+  const dockBox = el('div', { class: 'dockset' }, placeRow, placeNote, itemsTitle, ...dockToggles.map((t) => t.row));
+
+  const spendIn = el('input', { class: 'input', type: 'number', min: 0, step: 10, 'aria-label': 'Monthly spend limit in dollars', placeholder: 'off' });
+  spendIn.addEventListener('change', () => api.setSettings({ spendLimitUsd: Number(spendIn.value) || 0 }));
+  // A calendar: pick the date Claude shows under “Resets …”; it repeats on that day every month.
+  const dayIn = el('input', { class: 'input', type: 'date', style: 'width:140px', 'aria-label': 'Next reset date' });
+  dayIn.addEventListener('change', () => { const m = /^\d{4}-\d{2}-(\d{2})$/.exec(dayIn.value); if (m) api.setSettings({ resetDay: Number(m[1]) }); });
+  const nextReset = (day, now) => {
+    const at = (y, mo) => new Date(Date.UTC(y, mo, Math.min(day, new Date(Date.UTC(y, mo + 1, 0)).getUTCDate())));
+    const t = new Date(now); let d = at(t.getUTCFullYear(), t.getUTCMonth()); if (d.getTime() <= now) d = at(t.getUTCFullYear(), t.getUTCMonth() + 1);
+    return d.toISOString().slice(0, 10);
+  };
+  const spendRow = el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Spend limit ($ / month)' }), el('div', { class: 'd', text: 'If Claude’s Usage page shows a $ limit, enter it to see dollars.' })), spendIn);
+  const dayRow = el('div', { class: 'row sub' }, el('div', {}, el('div', { class: 't', text: 'Next reset' }), el('div', { class: 'd', text: 'The date under “Resets …” on Claude’s Usage page. Repeats monthly.' })), dayIn);
   const theme = mkSeg([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], 'theme');
   const size = mkSeg([[5, 'S'], [6, 'M'], [8, 'L']], 'scale', Number);
 
@@ -60,8 +88,9 @@ export function settingsView(root, api) {
   const ver = el('span', { class: 'muted' });
   root.append(el('div', { class: 'stack' },
     el('div', { class: 'set' },
-      el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Plan limits' }), limitStatus), limitBtn),
-      limitMsg,
+      el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Claude Code bridge' }), limitStatus), limitBtn),
+      limitMsg, spendRow, dayRow,
+      el('div', { class: 'row' }, el('div', { class: 't', text: 'Layout' }), layout.node), dockBox,
       el('div', { class: 'row' }, el('div', { class: 't', text: 'Theme' }), theme.node),
       el('div', { class: 'row' }, el('div', { class: 't', text: 'Pet size' }), size.node),
       el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Estimate shortcut' }), el('div', { class: 'd', text: 'Copy your prompt (⌘C), then press this.' }), hotStatus, hotMsg), hotBtn),
@@ -73,14 +102,29 @@ export function settingsView(root, api) {
   async function refreshSetup() {
     setup = await api.setupStatus();
     limitBtn.textContent = setup.installed ? 'Disconnect' : 'Connect';
-    limitStatus.textContent = setup.installed ? 'Connected to Claude Code' : setup.existing ? 'Not connected · your status line is kept' : 'Not connected';
+    limitStatus.textContent = setup.installed
+      ? (S && S.bridge && S.bridge.seen ? 'Connected · exact Claude Code cost, context and agents' : 'Installed · starts reporting from your next new Claude Code session')
+      : setup.error === 'unparseable' ? 'Claude Code’s settings.json has a JSON error — fix it first' : 'Read-only helper inside Claude Code for exact cost, context & agents';
   }
   refreshSetup();
 
   return {
     update(s) {
       S = s; const st = s.settings;
-      theme.set(st.theme); size.set(st.scale);
+      theme.set(st.theme); size.set(st.scale); layout.set(st.layout);
+      dockBox.hidden = st.layout === 'pet';
+      placeRow.hidden = st.layout !== 'dock'; place.set(st.dockPlace || 'below');
+      placeNote.hidden = st.layout !== 'dock' || st.dockPlace !== 'claude';
+      placeNote.textContent = s.hook && s.hook.installed
+        ? 'Shown as a bar above Claude Code’s prompt box (desktop Code tab and terminal), starting with your next new session. Tokkie stays on your desktop.'
+        : 'Needs the Claude Code bridge — connect it above. Until then nothing is shown in Claude Code.';
+      placeNote.style.color = s.hook && s.hook.installed ? '' : 'var(--warn)';
+      itemsTitle.textContent = st.layout === 'pills' ? 'Pills shown under your pet' : st.dockPlace === 'claude' ? 'Shown in the bar' : 'Shown in the Dock';
+      const picks = st.layout === 'pills' ? (st.pills || {}) : (st.dock || {});
+      for (const t of dockToggles) t.sw.setAttribute('aria-checked', String(st.layout === 'pills' ? !!picks[t.k] : picks[t.k] !== false));
+      if (document.activeElement !== spendIn) spendIn.value = st.spendLimitUsd || '';
+      if (document.activeElement !== dayIn) dayIn.value = nextReset(st.resetDay || 1, Date.now());
+      dayRow.hidden = !(st.spendLimitUsd > 0);
       if (!recording) hotBtn.textContent = prettyKey(st.hotkey, s.platform);
       const hk = s.hotkey, ok = !hk || hk.ok, fresh = hk && hk.firedAt && Date.now() - hk.firedAt < 15000;
       hotStatus.textContent = !ok ? '● Not active — another app is using it. Record a different one.'

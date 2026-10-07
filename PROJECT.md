@@ -22,6 +22,25 @@
 ## Usage % accuracy (important)
 Claude's `plan-usage-history.json` is only written occasionally (hours apart), so Tokkie never shows it raw as "now". `core/calibrate.js` derives *tokens per 1%* from consecutive readings vs tokens seen in between, then shows `last reading + tokens since / k` (labelled "live estimate · Claude said X% Nh ago"). Validated on real data: 21.4% (5 h old) → 34.2% vs Claude's page 34.9%. Enterprise accounts see a *spend limit* (dollars; the `xu` key = % of it); cost-state records in transcripts are only flushed at session end so they can't bridge the gap. Claude Code's desktop Code tab never calls the status-line hook (no ~/.tokkie/rate_limits.json), so that path only helps terminal/IDE users.
 
+## v1.0.4: bridge, dollars, Dock, personality
+- **Bridge** (`bridge/`, a Claude Code plugin with function hooks, validated by `claude plugin validate` / `claude plugin test bridge`). It writes `~/.tokkie/bridge/<session>.json` (exact `cost.usd`, context, agents, per-prompt cost deltas) and `rate_limits.json` when `rateLimits` is non-empty (Enterprise: always empty). It's installed by `setup.installBridge` through `env.CLAUDE_CODE_PLUGIN_DIRS`. The desktop Code tab honours this; the status-line hook did not. Connecting removes the old status-line hook.
+- **Spend ledger** (`core/spend.js`): per-session cost deltas in 5-minute buckets, kept 45 days. The first sight of a session is its baseline.
+- **Dollar mode** (`engine._live`): when `spendLimitUsd > 0` and the bridge has been running since the anchor reading, `extra%` = anchor + Code dollars since ÷ limit + non-bridge tokens ÷ k. Cowork's `audit.jsonl` `total_cost_usd` is NOT usable: it summed to $37k against Claude's $1.77.
+- **Pace** (`core/pace.js`): pace = used% − elapsed%. Monthly periods reset at 00:00 UTC on `resetDay`. The 5h period comes from the local block guess when no reset time is known.
+- **Renderer**:
+  - Layouts are Dock, Pills and Pet only. The Dock sits to the right of the pet, and `layoutPayload` measures its height.
+  - `PERSONALITY` in `pet.js` sets the idle face, self-emote cadence, hover and poke reactions, and the bored/sleep minutes.
+  - `evolution.display` pins a form; growing up then shows a note instead of transforming.
+
+## Claude bar (v1.0.5–1.0.9)
+- The app writes `~/.tokkie/band.json` (`{updatedAt, show, items:[{k,label,value,tone,tip}], alert, avatar}`) and the bridge draws it as an `AbovePrompt` band. A file older than 2 minutes means Tokkie is closed, so no bar is drawn.
+- Lessons from the user's screenshots:
+  - Bordered `Box` chips render tall on desktop.
+  - `Svg isInteractive` draws in a white sandboxed frame that ignores the theme, and its `<title>` tooltips didn't show.
+  - What works: borderless rows of a small `Svg` icon plus `Text`, with hover-reveal explanation lines. Those lines are `display:"none"` with `hover:{scope, display:"flex"}`, and the chip and its tip share a `scope`.
+  - The terminal resolves `Svg` to an empty Box, so branch on `e.surface === 'terminal'` and use glyphs there.
+- Packaging: electron-builder drops `*.d.ts`, so `bridge/` ships via `extraResources`, with `BRIDGE_SOURCE = process.resourcesPath/bridge` when packaged.
+
 ## Evolution
 `core/evolution.js` (thresholds 0/2M/10M/40M headline tokens → Hatchling/Junior/Champion/Mega; chub level 0–2 inside a form) + `monster.evolveSpec(base, stage, fat)` (pure; Junior = the generated creature; Mega gets a crown). Engine counts tokens from `settings.evolution.start` (set on first run, so history isn't food) and banks pruned messages into `archived`. Renderer celebrates when `stage > stageSeen` (also on next launch if it grew while closed). QA: `TOKKIE_EVO_EATEN=<n>` forces a total; `window.__tokkie.previewForm(stage, fat)`; `dev/forms.html` contact sheet.
 

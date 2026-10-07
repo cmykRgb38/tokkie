@@ -21,6 +21,7 @@ class Store {
     this.lastTurnEnd = 0;
     this.lastDur = new Map();     // sessionId -> seconds of its most recent finished turn
     this.recent = { dur: 0, end: 0 }; // most recent finished turn anywhere
+    this.cacheBySession = new Map();  // sessionId -> { at, ttl, ctx, model } from the main thread's latest request
     this.onPrune = null;          // called with each message about to be forgotten (the engine banks its tokens for the pet)
     this.onSample = null;         // called with each newly finished turn (live only; engine sets it after the initial replay)
   }
@@ -47,10 +48,14 @@ class Store {
     } else if (ev.kind === 'interrupt') {
       this.sessions.delete(ev.sessionId);
     } else if (ev.kind === 'usage') {
+      if (!ev.sidechain) {
+        const c = this.cacheBySession.get(ev.sessionId) || { at: 0, ttl: null };
+        if (ev.ts >= c.at) this.cacheBySession.set(ev.sessionId, { at: ev.ts, ttl: ev.ttl || c.ttl, ctx: ev.input + ev.cacheRead + ev.cacheWrite, model: ev.model });
+      }
       const prev = this.msgs.get(ev.id);
       // Streaming rewrites: keep whichever copy has seen more output.
       if (!prev || ev.output >= prev.output) {
-        this.msgs.set(ev.id, { ts: ev.ts, input: ev.input, output: ev.output, cacheWrite: ev.cacheWrite, cacheRead: ev.cacheRead, sessionId: ev.sessionId });
+        this.msgs.set(ev.id, { ts: ev.ts, input: ev.input, output: ev.output, cacheWrite: ev.cacheWrite, cacheRead: ev.cacheRead, sessionId: ev.sessionId, source: ev.source });
       }
       if (turn && ev.ts >= turn.start) {
         turn.lastTs = Math.max(turn.lastTs, ev.ts);
@@ -82,11 +87,12 @@ class Store {
     for (const sid of this.lastDur.keys()) if (!this.sessions.has(sid) && this.lastDur.size > 200) this.lastDur.delete(sid);
   }
 
-  /** Sum usage since a timestamp. */
-  sumSince(since, until = Infinity) {
+  /** Sum usage since a timestamp (optionally leaving out some sessions, e.g. ones already counted in exact dollars). */
+  sumSince(since, until = Infinity, skip = null) {
     const r = { headline: 0, weighted: 0, input: 0, output: 0, cacheWrite: 0, cacheRead: 0, messages: 0 };
     for (const m of this.msgs.values()) {
       if (m.ts < since || m.ts > until) continue;
+      if (skip && skip.has(m.sessionId)) continue;
       r.input += m.input; r.output += m.output; r.cacheWrite += m.cacheWrite; r.cacheRead += m.cacheRead; r.messages++;
     }
     r.headline = r.input + r.output + r.cacheWrite;
@@ -162,6 +168,18 @@ class Store {
     }
     for (const r of Object.values(out)) { r.headline = r.input + r.output + r.cacheWrite; r.weighted = r.headline + r.cacheRead * 0.1; }
     return { ...out, burn: burn / burnMinutes, spark, block: this.currentBlock(now) };
+  }
+
+  /**
+   * The prompt cache of the most recently active conversation: it lives 5 minutes or 1 hour from the last request
+   * (any request that reads it restarts the clock). Lifetime inferred from what the requests wrote; 1 h if unknown.
+   */
+  cacheView(now = this.now()) {
+    let best = null, bestId = null;
+    for (const [id, c] of this.cacheBySession) if (!best || c.at > best.at) { best = c; bestId = id; }
+    if (!best || now - best.at > 6 * H) return null;
+    const ttlMs = best.ttl === '5m' ? 5 * 60e3 : 60 * 60e3;
+    return { sessionId: bestId, at: best.at, ttlMs, expiresAt: best.at + ttlMs, ctxTokens: best.ctx, model: best.model, ttlKnown: !!best.ttl };
   }
 
   snapshotTotals(now = this.now()) {

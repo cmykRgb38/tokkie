@@ -1,7 +1,7 @@
 {
   "name": "tokkie",
   "productName": "Tokkie",
-  "version": "1.0.3",
+  "version": "1.0.9",
   "description": "A tiny desktop pet that tracks your Claude usage live and tells you how long your next prompt will take.",
   "main": "src/main/main.js",
   "author": "Tokkie contributors",
@@ -91,7 +91,17 @@
     },
     "portable": {
       "artifactName": "${productName}-Portable-${version}-${os}-${arch}.${ext}"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "bridge",
+        "to": "bridge",
+        "filter": [
+          "**/*",
+          "!tests/**"
+        ]
+      }
+    ]
   },
   "allowScripts": {
     "electron": true,
