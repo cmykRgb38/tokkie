@@ -79,7 +79,8 @@ Honest answer: **useful, not magic.** Agent runs vary enormously. Tokkie learns 
 - **Plan limit never appears** – open the Claude desktop app's Settings → Usage once so it saves a reading, or use **Sync with Claude** on the Usage tab.
 - **Bridge says “Installed” but nothing arrives** – it only loads into Claude Code sessions started after you connected. Start a new session.
 - **Shortcut doesn't work** – another app owns it; record a different one in Settings.
-- **macOS: "app can't be opened"** – the unsigned build needs *right-click → Open* once (or sign it with your Developer ID).
+- **macOS: "Tokkie can't be opened / Apple could not verify…"** – Tokkie isn't notarised by Apple (that needs a paid developer account). Open it once, click **Done**, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. You only do this once.
+- **macOS: "Tokkie is damaged and can't be opened"** (downloads of v1.0.9 and older) – run `xattr -cr /Applications/Tokkie.app` in Terminal, then open it again. Or install v1.0.10 or newer, which is fully signed so you get the normal prompt above instead.
 - **Windows** – built and tested in CI only; please report issues.
 
 ## Development
