@@ -118,6 +118,13 @@ const ICON_PATHS: Record<string, string> = {
   alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2h0"/>',
 }
 const GLYPH: Record<string, string> = { usage: '◔', pace: '↯', status: '✓', tokens: '▮', lastPrompt: '$', context: '≡', cache: '◷', agents: '⚙', alert: '!' }
+// The pet in the bar: as tall as a line of text; width follows its shape (wide pets get wider, never taller).
+const AVATAR_H = 20
+function avatarWidth(svg: string, h: number): number {
+  const m = /viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/.exec(svg)
+  const w = m ? Number(m[1]) : 1, hh = m ? Number(m[2]) : 1
+  return Math.max(12, Math.min(48, Math.round((h * w) / (hh || 1))))
+}
 const k = (key: string) => (ICON_PATHS[key] ? key : 'status')
 
 const icon = (k: string, color: string) =>
@@ -172,7 +179,7 @@ export const register: Register = on => {
           <Box flexDirection="row" flexWrap="nowrap" overflow="hidden" alignItems="center" columnGap={1}>
             {b.avatar ? (
               <Box key="tk" paddingRight={1} hover={{ scope: 'tokkie-about', backgroundColor: HL }}>
-                <Svg source={b.avatar} alt="Tokkie" width={22} height={22} />
+                <Svg source={b.avatar} alt="Tokkie" width={avatarWidth(b.avatar, AVATAR_H)} height={AVATAR_H} />
               </Box>
             ) : null}
             {b.items.map((it, i) => {

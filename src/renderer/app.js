@@ -298,9 +298,9 @@ function petAvatar() {
   const px = [...f.outline, ...f.cells];
   if (!px.length) return avatarSvg;
   const xs = px.map((c) => c.x), ys = px.map((c) => c.y);
-  const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1, side = Math.max(w, h);
-  const ox = x0 - (side - w) / 2, oy = y0 - (side - h);           // square, feet on the bottom edge
-  avatarSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${ox} ${oy} ${side} ${side}" shape-rendering="crispEdges">` + px.map((c) => `<rect x="${c.x}" y="${c.y}" width="1" height="1" fill="${c.c}"/>`).join('') + '</svg>';
+  const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1;
+  // cropped tight (no square padding): the bar sizes it by height, so a wide pet stays as tall as the text
+  avatarSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${x0} ${y0} ${w} ${h}" shape-rendering="crispEdges">` + px.map((c) => `<rect x="${c.x}" y="${c.y}" width="1" height="1" fill="${c.c}"/>`).join('') + '</svg>';
   avatarKey = key;
   return avatarSvg;
 }
