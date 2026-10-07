@@ -279,3 +279,5 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .run.openable:hover { box-shadow: inset 0 0 0 1px var(--accent); }
 .run .ractions { display: none; gap: 6px; margin-top: 6px; }
 .run.openable:hover .ractions, .run.openable:focus-within .ractions { display: flex; }
+.run.live { box-shadow: inset 0 0 0 1px var(--accent); }
+.run.live .dot { display: inline-block; vertical-align: 1px; }

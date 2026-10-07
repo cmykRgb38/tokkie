@@ -143,7 +143,10 @@ class Store {
     for (const [sessionId, t] of this.sessions) {
       const last = Math.max(t.lastTs, t.start);
       if (now - last > STALE_TURN_MS) continue;
-      if (!best || t.start > best.start) best = { sessionId, start: t.start, chars: t.chars, hint: t.hint, prev: t.prev, lastTs: last, elapsed: now - t.start };
+      if (!best || t.start > best.start) {
+        let head = 0; for (const m of (t.msgs || new Map()).values()) head += m.h;     // tokens so far, live
+        best = { sessionId, start: t.start, chars: t.chars, hint: t.hint, prev: t.prev, lastTs: last, elapsed: now - t.start, headline: head, preview: t.preview || '', find: t.find || '', cwd: t.cwd || '', source: t.source || '' };
+      }
     }
     return best;
   }

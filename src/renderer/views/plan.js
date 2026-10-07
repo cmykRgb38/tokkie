@@ -118,11 +118,19 @@ export function planView(root, api) {
 
   let runsKey = '';
   function renderRuns(s) {
-    const key = JSON.stringify([s.runs, s.k5, Math.floor(s.now / 60000)]);
+    const a = s.active;
+    const key = JSON.stringify([s.runs, s.k5, Math.floor(s.now / 60000), a ? [a.start, a.headline, Math.floor(s.now / 1000)] : null]);
     if (key === runsKey) return; runsKey = key;
     const runs = s.runs || [];
     const head = el('div', { class: 'row' }, el('span', { class: 'label', text: 'Recent runs' }), el('span', { class: 'muted', text: 'what each prompt actually cost' }));
-    if (!runs.length) { runsBox.replaceChildren(head, el('p', { class: 'muted', text: 'Runs you make will appear here with how long they took and how many tokens they used.' })); return; }
+    // The run happening right now: same card, live (tokens grow with every step Claude takes).
+    const live = a ? el('div', { class: 'run live' },
+      el('div', { class: 'row' }, el('span', { class: 'muted' }, el('span', { class: 'dot', 'data-k': 'live' }), ` Running now${a.cwd ? ` · ${a.cwd.split(/[\\/]/).filter(Boolean).pop()}` : a.source === 'cowork' ? ' · Cowork' : ''}`),
+        el('span', { class: 'val', text: fmtDur((s.now - a.start) / 1000) })),
+      a.preview ? el('div', { class: 'rprompt', text: `“${a.preview}${a.chars > 140 ? '…' : ''}”` }) : null,
+      el('div', { class: 'rtok', text: a.headline ? `≈ ${fmtTokens(a.headline)} tokens so far` : 'starting…' }),
+      s.eta ? el('div', { class: 'muted', text: `usually ${fmtRange(s.eta.p25, s.eta.p75)}` }) : null) : null;
+    if (!runs.length) { runsBox.replaceChildren(head, ...(live ? [live] : []), el('p', { class: 'muted', text: 'Runs you make will appear here with how long they took and how many tokens they used.' })); return; }
     const rows = runs.map((r) => {
       const share = s.k5 && r.tokens ? (r.tokens / s.k5) * 100 : null;
       const tok = r.headline ? `≈ ${fmtTokens(r.headline)} tokens${share != null ? ` · ${share < 1 ? '<1' : Math.round(share)}% of 5h` : ''}` : '';
@@ -158,7 +166,7 @@ export function planView(root, api) {
         chips.length ? el('div', { class: 'chips2' }, el('span', { class: 'muted', text: 'estimate:' }), chips) : el('div', { class: 'muted', text: 'not estimated beforehand' }),
         actions, msg);
     });
-    runsBox.replaceChildren(head, ...rows);
+    runsBox.replaceChildren(head, ...(live ? [live] : []), ...rows);
   }
 
   return {
