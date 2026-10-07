@@ -60,8 +60,7 @@ test('draws Tokkie’s Dock above the prompt when Tokkie asks for it, and nothin
       const svg: any = await ui.find({ type: 'Svg' } as never)
       expect(svg).toBeDefined()                                                                  // the bar is one SVG
       const src = JSON.stringify(await ui.drawn())
-      expect(src.includes('<title>')).toBe(true)                                                 // hover tooltips
-      console.log('BARSVG' + JSON.stringify((await ui.drawn())))
+      expect(src.includes('"display":"none"') && src.includes('≈58% of your $200 limit used')).toBe(true)   // hover explanations, hidden until hovered
     }
     else expect(await ui.find({ type: 'Text', text: /◔/ } as never)).toBeDefined()               // glyphs in the terminal
     await ui.unmount()

@@ -103,6 +103,7 @@ async function refreshBand($: Engine) {
 // Chip colours (border + value), and a neutral for chips with nothing to flag.
 const TONE: Record<string, string> = { good: '#4fc98a', warn: '#e8b931', bad: '#f06a5f' }
 const NEUTRAL = '#6b6b78'
+const ICON_GREY = '#8d8d99'                 // readable on both light and dark
 
 // 24×24 line icons (desktop / editor / mobile draw them; the terminal gets a glyph instead).
 const ICON_PATHS: Record<string, string> = {
@@ -117,45 +118,6 @@ const ICON_PATHS: Record<string, string> = {
   alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2h0"/>',
 }
 const GLYPH: Record<string, string> = { usage: '◔', pace: '↯', status: '✓', tokens: '▮', lastPrompt: '$', context: '≡', cache: '◷', agents: '⚙', alert: '!' }
-const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-
-// Rough advance widths of the system UI font at 11.5px, erring wide so text never runs into the next chip.
-function textWidth(t: string): number {
-  let w = 0
-  for (const ch of t) w += /[0-9$]/.test(ch) ? 7 : /[A-Z]/.test(ch) ? 7.6 : /[mw]/.test(ch) ? 9 : /[il.,:'·|]/.test(ch) ? 3.4 : ch === ' ' ? 3.2 : /[≈~]/.test(ch) ? 7.2 : 5.8
-  return Math.ceil(w)
-}
-
-/**
- * The whole bar as one small SVG: 22 px chips, hover tooltips (<title>) and a hover highlight. Drawn in the
- * sandboxed frame (isInteractive) so tooltips work; no script, nothing leaves the drawing.
- */
-function barSvg(b: NonNullable<Band>): { source: string; width: number; height: number; summary: string } {
-  const H = 22, GAP = 6, PADX = 8, IC = 12
-  let x = 0
-  const parts: string[] = []
-  if (b.avatar) {
-    const inner = b.avatar.replace(/^<svg/, `<svg x="0" y="2" width="18" height="18"`)
-    parts.push(`<g><title>Tokkie — your usage pet. Hover a chip to see what it means.</title>${inner}</g>`)
-    x += 18 + GAP
-  }
-  for (const it of b.items) {
-    const color = it.tone ? TONE[it.tone] as string : ''
-    const tw = textWidth(it.value), w = PADX + IC + 5 + tw + PADX
-    const tip = esc(it.tip ? `${it.label}: ${it.tip}` : it.label)
-    parts.push(`<g class="c"><title>${tip}</title>` +
-      `<rect x="${x + 0.5}" y="0.5" width="${w - 1}" height="${H - 1}" rx="7" class="bg" ${color ? `style="stroke:${color};stroke-opacity:.55"` : ''}/>` +
-      `<g transform="translate(${x + PADX} ${(H - IC) / 2}) scale(${IC / 24})" fill="none" stroke="${color || 'currentColor'}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[k(it.k)]}</g>` +
-      `<text x="${x + PADX + IC + 5}" y="${H / 2}" dominant-baseline="central" ${color ? `fill="${color}"` : 'class="ink"'}>${esc(it.value)}</text></g>`)
-    x += w + GAP
-  }
-  const width = Math.max(1, x - GAP)
-  const style = `<style>text{font:500 11.5px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}` +
-    `.bg{fill:rgba(255,255,255,.045);stroke:rgba(255,255,255,.13)}.ink{fill:#d8d8e0}g.c{color:#a9a9b6}g.c:hover .bg{fill:rgba(255,255,255,.1)}` +
-    `@media (prefers-color-scheme: light){.bg{fill:rgba(0,0,0,.035);stroke:rgba(0,0,0,.14)}.ink{fill:#2a2a33}g.c{color:#62626e}g.c:hover .bg{fill:rgba(0,0,0,.07)}}</style>`
-  const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${H}" viewBox="0 0 ${width} ${H}">${style}${parts.join('')}</svg>`
-  return { source, width, height: H, summary: b.items.map(i => `${i.label} ${i.value}`).join(', ') }
-}
 const k = (key: string) => (ICON_PATHS[key] ? key : 'status')
 
 const icon = (k: string, color: string) =>
@@ -201,11 +163,36 @@ export const register: Register = on => {
     const { Box, Text } = table
     if (e.surface !== 'terminal' && table.Svg) {
       const Svg = table.Svg as any
-      const bar = barSvg(b)
+      // One slim row: icon + value per item, no boxes. Hovering an item lights it and reveals a line saying
+      // what it means (the surface's own hover-reveal: no hook runs, nothing leaves the drawing).
+      const HL = '#8080802e'
       return (
         <Box flexDirection="column" overflow="hidden">
           {b.alert ? <Text color={TONE.bad} wrap="truncate">⚠ {b.alert}</Text> : null}
-          <Svg source={bar.source} alt={`Tokkie: ${bar.summary}`} width={bar.width} height={bar.height} isInteractive />
+          <Box flexDirection="row" flexWrap="nowrap" overflow="hidden" alignItems="center" columnGap={1}>
+            {b.avatar ? (
+              <Box key="tk" paddingX={1} hover={{ scope: 'tokkie-about', backgroundColor: HL }}>
+                <Svg source={b.avatar} alt="Tokkie" width={14} height={14} />
+              </Box>
+            ) : null}
+            {b.items.map((it, i) => {
+              const color = it.tone ? TONE[it.tone] : undefined
+              return (
+                <Box key={`c${i}`} flexDirection="row" flexShrink={0} alignItems="center" columnGap={1} paddingX={1} hover={{ scope: `tokkie-${i}`, backgroundColor: HL }}>
+                  <Svg source={icon(k(it.k), color || ICON_GREY)} alt={it.label} width={12} height={12} />
+                  <Text color={color} wrap="truncate">{it.value}</Text>
+                </Box>
+              )
+            })}
+          </Box>
+          <Box key="tip-about" display="none" hover={{ scope: 'tokkie-about', display: 'flex' }}>
+            <Text dimColor wrap="truncate">Tokkie — your usage pet. Hover an item to see what it means.</Text>
+          </Box>
+          {b.items.map((it, i) => (
+            <Box key={`t${i}`} display="none" hover={{ scope: `tokkie-${i}`, display: 'flex' }}>
+              <Text dimColor wrap="truncate"><Text bold>{it.label}</Text>{it.tip ? ` — ${it.tip}` : ''}</Text>
+            </Box>
+          ))}
         </Box>
       )
     }
