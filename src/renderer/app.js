@@ -38,6 +38,7 @@ const api = {
   openTab: (t) => setMode('expanded', t),
   openSession: (id) => bridge.ui.openSession(id),
   copyText: (t) => bridge.ui.copyText(t),
+  promptText: (sid, uuid) => bridge.ui.promptText(sid, uuid),
   platform: () => (S ? S.platform : ''),
   hide: () => bridge.ui.hide(), quit: () => bridge.ui.quit(),
 };

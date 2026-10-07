@@ -277,7 +277,10 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .run .rprompt { font-size: 12.5px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin: 2px 0; user-select: text; }
 .run.openable { cursor: pointer; transition: border-color .15s, background .15s; }
 .run.openable:hover { box-shadow: inset 0 0 0 1px var(--accent); }
-.run .ractions { display: none; gap: 6px; margin-top: 6px; }
-.run.openable:hover .ractions, .run.openable:focus-within .ractions { display: flex; }
+.run .ractions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.run .rdetail { cursor: auto; }
+.run .rfull { margin-top: 4px; padding: 8px 10px; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.45;
+  color: var(--ink); background: var(--bg-sunken); border-radius: 8px; user-select: text; cursor: text; scrollbar-width: thin; }
+.runlist { display: grid; gap: 8px; }
 .run.live { box-shadow: inset 0 0 0 1px var(--accent); }
 .run.live .dot { display: inline-block; vertical-align: 1px; }

@@ -192,7 +192,7 @@ class Engine extends EventEmitter {
     // A run's exact cost: the bridge's per-prompt cost from the same session, recorded as that run finished.
     const usdFor = (s) => { const end = s.start + s.duration * 1000; const t = turns.find((x) => x.sessionId === s.sessionId && Math.abs(x.at - end) < 30e3); return t ? t.usd : null; };
     return this.store.samples.slice(-n).reverse().map((s) => ({ start: s.start, chars: s.chars, duration: s.duration, headline: s.headline || 0, tokens: s.tokens, est: s.est || null, usd: usdFor(s),
-      sessionId: s.sessionId, preview: s.preview || '', find: s.find || '', cwd: s.cwd || '', source: s.source || '' }));
+      sessionId: s.sessionId, preview: s.preview || '', find: s.find || '', cwd: s.cwd || '', source: s.source || '', uuid: s.uuid || '', hasText: !!(s.file && s.uuid) }));
   }
 
   snapshot(now = this.now()) {
@@ -273,6 +273,24 @@ class Engine extends EventEmitter {
     const i = this.pending.findIndex((p) => now - p.at < 120e3 && Math.abs(p.chars - chars) < Math.max(60, chars * 0.5));
     if (i >= 0) this.pending[i] = entry; else this.pending.push(entry);
     this.pending = this.pending.filter((p) => now - p.at < 6 * 3600e3).slice(-6);
+  }
+
+  /**
+   * The full text of a past prompt, read on demand from the conversation log it came from (Tokkie keeps only a
+   * preview). Only files Tokkie itself is reading are opened, and only the line with that prompt's id is returned.
+   */
+  promptText(sessionId, uuid) {
+    const s = this.store.samples.find((x) => x.sessionId === sessionId && x.uuid === uuid && x.file);
+    if (!s || !this.tailer.files.has(s.file)) return null;
+    try {
+      const data = fs.readFileSync(s.file, 'utf8');
+      const i = data.indexOf(`"uuid":"${uuid}"`);
+      if (i < 0) return null;
+      const a = data.lastIndexOf('\n', i) + 1, b = data.indexOf('\n', i);
+      const d = JSON.parse(data.slice(a, b < 0 ? undefined : b));
+      const { textOf } = require('./parser');
+      return textOf(d.message && d.message.content).trim().slice(0, 100_000);
+    } catch { return null; }
   }
 
   /** The planner: tokens, duration range, share of the limit, and the go/no-go verdict. */

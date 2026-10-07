@@ -203,8 +203,15 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       ok('the estimate shortcut is registered and matches what the UI shows', hk && hk.ok === true && hk.accelerator === 'CommandOrControl+Alt+Shift+L', JSON.stringify(hk));
       await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(600);
       await js(`document.getElementById('tab-plan').click()`); await wait(600);
-      const runs = await js(`[...document.querySelectorAll('#view-plan .run')].slice(0,3).map(r=>({prompt:r.querySelector('.rprompt')?.textContent||'',open:r.classList.contains('openable'),btn:r.querySelector('.ractions button')?.textContent||''}))`);
-      ok('recent runs show the prompt and can reopen the conversation', runs.length === 0 || runs.some((r) => r.prompt.length > 2 && r.open && r.btn === 'Open in Claude'), JSON.stringify(runs).slice(0, 300));
+      const runs = await js(`[...document.querySelectorAll('#view-plan .runlist .run')].slice(0,3).map(r=>({prompt:r.querySelector('.rprompt')?.textContent||''}))`);
+      ok('recent runs show the prompt', runs.length === 0 || runs.some((r) => r.prompt.length > 2), JSON.stringify(runs).slice(0, 200));
+      if (runs.length) {
+        await js(`document.querySelector('#view-plan .runlist .run').click()`); await wait(900);
+        const ex = await js(`(()=>{const r=document.querySelector('#view-plan .runlist .run');return {open:r.getAttribute('aria-expanded'),full:r.querySelector('.rfull')?.textContent||'',btns:[...r.querySelectorAll('.ractions button')].map(b=>b.textContent)}})()`);
+        ok('clicking a run shows its full prompt and the actions', ex.open === 'true' && ex.full.length > 2 && ex.full !== 'Loading…' && ex.btns.includes('Copy prompt'), JSON.stringify(ex).slice(0, 300));
+        await wait(1300);
+        ok('an opened run stays open while the panel refreshes', (await js(`document.querySelector('#view-plan .runlist .run').getAttribute('aria-expanded')`)) === 'true');
+      }
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(400);
       ok('no renderer console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
     } catch (e) { ok('e2e harness threw', false, e.stack); }

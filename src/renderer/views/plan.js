@@ -117,56 +117,85 @@ export function planView(root, api) {
   ta.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 220); });
 
   let runsKey = '';
-  function renderRuns(s) {
+  // Recent runs. The live card redraws every second; the list only when runs change, so an opened card stays open.
+  const runsHead = el('div', { class: 'row' }, el('span', { class: 'label', text: 'Recent runs' }), el('span', { class: 'muted', text: 'click one to see the full prompt' }));
+  const liveBox = el('div'), listBox = el('div', { class: 'runlist' });
+  runsBox.replaceChildren(runsHead, liveBox, listBox);
+  const opened = new Set(), texts = new Map();
+  let liveKey = '';
+
+  function renderLive(s) {
     const a = s.active;
-    const key = JSON.stringify([s.runs, s.k5, Math.floor(s.now / 60000), a ? [a.start, a.headline, Math.floor(s.now / 1000)] : null]);
-    if (key === runsKey) return; runsKey = key;
-    const runs = s.runs || [];
-    const head = el('div', { class: 'row' }, el('span', { class: 'label', text: 'Recent runs' }), el('span', { class: 'muted', text: 'what each prompt actually cost' }));
-    // The run happening right now: same card, live (tokens grow with every step Claude takes).
-    const live = a ? el('div', { class: 'run live' },
+    const k = a ? JSON.stringify([a.start, a.headline, Math.floor(s.now / 1000), s.eta && s.eta.p50]) : '';
+    if (k === liveKey) return; liveKey = k;
+    if (!a) { liveBox.replaceChildren(); return; }
+    liveBox.replaceChildren(el('div', { class: 'run live' },
       el('div', { class: 'row' }, el('span', { class: 'muted' }, el('span', { class: 'dot', 'data-k': 'live' }), ` Running now${a.cwd ? ` · ${a.cwd.split(/[\\/]/).filter(Boolean).pop()}` : a.source === 'cowork' ? ' · Cowork' : ''}`),
         el('span', { class: 'val', text: fmtDur((s.now - a.start) / 1000) })),
       a.preview ? el('div', { class: 'rprompt', text: `“${a.preview}${a.chars > 140 ? '…' : ''}”` }) : null,
       el('div', { class: 'rtok', text: a.headline ? `≈ ${fmtTokens(a.headline)} tokens so far` : 'starting…' }),
-      s.eta ? el('div', { class: 'muted', text: `usually ${fmtRange(s.eta.p25, s.eta.p75)}` }) : null) : null;
-    if (!runs.length) { runsBox.replaceChildren(head, ...(live ? [live] : []), el('p', { class: 'muted', text: 'Runs you make will appear here with how long they took and how many tokens they used.' })); return; }
-    const rows = runs.map((r) => {
-      const share = s.k5 && r.tokens ? (r.tokens / s.k5) * 100 : null;
-      const tok = r.headline ? `≈ ${fmtTokens(r.headline)} tokens${share != null ? ` · ${share < 1 ? '<1' : Math.round(share)}% of 5h` : ''}` : '';
-      const chips = [];
-      if (r.est) {
-        const a = accuracy(r.duration, r.est.dur), b = r.headline ? accuracy(r.headline, r.est.head) : null;
-        chips.push(el('span', { class: 'acc', 'data-k': a, title: `Estimated ${fmtRange(r.est.dur.p25, r.est.dur.p75)}` }, `time ${ACC_TXT[a]}`));
-        if (b) chips.push(el('span', { class: 'acc', 'data-k': b, title: `Estimated ${fmtTokens(r.est.head.p25)}–${fmtTokens(r.est.head.p75)} tokens` }, `tokens ${ACC_TXT[b]}`));
+      s.eta ? el('div', { class: 'muted', text: `usually ${fmtRange(s.eta.p25, s.eta.p75)}` }) : null));
+  }
+
+  function runCard(s, r) {
+    const id = `${r.sessionId}:${r.start}`, isOpen = opened.has(id);
+    const share = s.k5 && r.tokens ? (r.tokens / s.k5) * 100 : null;
+    const tok = r.headline ? `≈ ${fmtTokens(r.headline)} tokens${share != null ? ` · ${share < 1 ? '<1' : Math.round(share)}% of 5h` : ''}` : '';
+    const chips = [];
+    if (r.est) {
+      const a = accuracy(r.duration, r.est.dur), b = r.headline ? accuracy(r.headline, r.est.head) : null;
+      chips.push(el('span', { class: 'acc', 'data-k': a, title: `Estimated ${fmtRange(r.est.dur.p25, r.est.dur.p75)}` }, `time ${ACC_TXT[a]}`));
+      if (b) chips.push(el('span', { class: 'acc', 'data-k': b, title: `Estimated ${fmtTokens(r.est.head.p25)}–${fmtTokens(r.est.head.p75)} tokens` }, `tokens ${ACC_TXT[b]}`));
+    }
+    const project = r.cwd ? r.cwd.split(/[\\/]/).filter(Boolean).pop() : '';
+    const where = r.source === 'cowork' ? 'Cowork' : project;
+    // Claude Code runs can be reopened in the Claude app; Cowork has no such link.
+    const canOpen = r.source !== 'cowork' && /^[0-9a-f-]{36}$/i.test(r.sessionId || '');
+    const resumeCmd = canOpen ? `${r.cwd ? `cd "${r.cwd}" && ` : ''}claude --resume ${r.sessionId}` : '';
+    const msg = el('div', { class: 'muted', hidden: true, style: 'color:var(--good)' });
+    const note = (t, ms = 4000) => { msg.textContent = t; msg.hidden = false; setTimeout(() => { msg.hidden = true; }, ms); };
+    const stop = (fn) => async (e) => { e.stopPropagation(); await fn(); };
+    const full = el('div', { class: 'rfull', tabindex: '0', text: texts.get(id) || (r.hasText ? 'Loading…' : r.preview || '') });
+    const actions = el('div', { class: 'ractions' },
+      el('button', { class: 'btn sm', type: 'button', text: 'Copy prompt', onclick: stop(async () => { await api.copyText(texts.get(id) || r.preview || ''); note('Prompt copied.'); }) }),
+      canOpen ? el('button', { class: 'btn sm quiet', type: 'button', text: 'Open in Claude', title: 'Opens this conversation in the Claude app, with the prompt copied so ⌘F ⌘V finds it', onclick: stop(async () => {
+        // Claude can open the conversation, not a message in it: copy the prompt's first line so ⌘F ⌘V finds it.
+        const find = r.find || (r.preview || '').slice(0, 60);
+        if (find) await api.copyText(find);
+        const res = await api.openSession(r.sessionId);
+        const mac = api.platform() === 'darwin';
+        if (!res || !res.ok) note('Couldn’t open Claude — is the desktop app installed?');
+        else note(`Opened. To jump to this prompt press ${mac ? '⌘F' : 'Ctrl+F'} then ${mac ? '⌘V' : 'Ctrl+V'} in Claude.`, 9000);
+      }) }) : null,
+      canOpen ? el('button', { class: 'btn sm quiet', type: 'button', text: 'Copy resume command', title: resumeCmd, onclick: stop(async () => { await api.copyText(resumeCmd); note('Copied — paste it in a terminal to continue this conversation.'); }) }) : null);
+    const detail = el('div', { class: 'rdetail', hidden: !isOpen, onclick: (e) => e.stopPropagation() }, full, actions, msg);
+    const card = el('div', { class: 'run openable', 'aria-expanded': String(isOpen), tabindex: '0', title: isOpen ? '' : 'Click to see the full prompt' },
+      el('div', { class: 'row' }, el('span', { class: 'muted', text: `${fmtDur((s.now - r.start) / 1000)} ago${where ? ` · ${where}` : ''}` }), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
+      r.preview && !isOpen ? el('div', { class: 'rprompt', text: `“${r.preview}${r.chars > 140 ? '…' : ''}”` }) : null,
+      el('div', { class: 'rtok', text: (tok || 'tokens not recorded') + (r.usd != null ? ` · $${r.usd.toFixed(2)}` : '') }),
+      chips.length ? el('div', { class: 'chips2' }, el('span', { class: 'muted', text: 'estimate:' }), chips) : el('div', { class: 'muted', text: 'not estimated beforehand' }),
+      detail);
+    const toggle = async () => {
+      if (opened.has(id)) opened.delete(id); else opened.add(id);
+      runsKey = ''; renderRuns(S);
+      if (opened.has(id) && !texts.has(id) && r.hasText) {
+        const t = await api.promptText(r.sessionId, r.uuid);
+        texts.set(id, t || r.preview || '(this prompt is no longer in Claude’s logs)');
+        runsKey = ''; renderRuns(S);
       }
-      const project = r.cwd ? r.cwd.split(/[\\/]/).filter(Boolean).pop() : '';
-      const where = r.source === 'cowork' ? 'Cowork' : project;
-      // Claude Code runs can be reopened in the Claude app; Cowork has no such link, so those just show the prompt.
-      const canOpen = r.source !== 'cowork' && /^[0-9a-f-]{36}$/i.test(r.sessionId || '');
-      const resumeCmd = canOpen ? `${r.cwd ? `cd "${r.cwd}" && ` : ''}claude --resume ${r.sessionId}` : '';
-      const actions = canOpen ? el('div', { class: 'ractions' },
-        el('button', { class: 'btn sm', type: 'button', text: 'Open in Claude', title: 'Opens this conversation in the Claude desktop app, with the prompt copied so you can find it', onclick: async (e) => {
-          e.stopPropagation();
-          // Claude can only open the conversation, not a message in it: copy the prompt's first line so ⌘F ⌘V finds it.
-          const find = r.find || (r.preview || '').slice(0, 60);
-          if (find) await api.copyText(find);
-          const res = await api.openSession(r.sessionId);
-          const mac = api.platform() === 'darwin';
-          if (!res || !res.ok) note('Couldn’t open Claude — is the desktop app installed?');
-          else if (find) note(`Opened. To jump to this prompt press ${mac ? '⌘F' : 'Ctrl+F'} then ${mac ? '⌘V' : 'Ctrl+V'} in Claude.`, 9000);
-        } }),
-        el('button', { class: 'btn sm quiet', type: 'button', text: 'Copy terminal command', title: resumeCmd, onclick: async (e) => { e.stopPropagation(); await api.copyText(resumeCmd); note('Copied — paste it in a terminal to continue this conversation.'); } })) : null;
-      const msg = el('div', { class: 'muted', hidden: true, style: 'color:var(--good)' });
-      const note = (t, ms = 4000) => { msg.textContent = t; msg.hidden = false; setTimeout(() => { msg.hidden = true; }, ms); };
-      return el('div', { class: 'run' + (canOpen ? ' openable' : ''), title: canOpen ? 'Click to open this conversation in Claude' : '', onclick: canOpen ? () => actions.querySelector('button').click() : null },
-        el('div', { class: 'row' }, el('span', { class: 'muted', text: `${fmtDur((s.now - r.start) / 1000)} ago${where ? ` · ${where}` : ''}` }), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
-        r.preview ? el('div', { class: 'rprompt', text: `“${r.preview}${r.chars > 140 ? '…' : ''}”` }) : null,
-        el('div', { class: 'rtok', text: (tok || 'tokens not recorded') + (r.usd != null ? ` · $${r.usd.toFixed(2)}` : '') }),
-        chips.length ? el('div', { class: 'chips2' }, el('span', { class: 'muted', text: 'estimate:' }), chips) : el('div', { class: 'muted', text: 'not estimated beforehand' }),
-        actions, msg);
-    });
-    runsBox.replaceChildren(head, ...(live ? [live] : []), ...rows);
+    };
+    card.addEventListener('click', toggle);
+    card.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === card) { e.preventDefault(); toggle(); } });
+    return card;
+  }
+
+  function renderRuns(s) {
+    renderLive(s);
+    const key = JSON.stringify([s.runs, s.k5, Math.floor(s.now / 60000), [...opened], texts.size]);
+    if (key === runsKey) return; runsKey = key;
+    const runs = s.runs || [];
+    if (!runs.length) { listBox.replaceChildren(el('p', { class: 'muted', text: 'Runs you make will appear here with the prompt, how long it took and what it cost.' })); return; }
+    listBox.replaceChildren(...runs.map((r) => runCard(s, r)));
   }
 
   return {

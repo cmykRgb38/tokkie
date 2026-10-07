@@ -57,7 +57,7 @@ class Tailer {
         for (const line of data.subarray(0, cut).toString('utf8').split('\n')) {
           if (!line || !LINE_HINT.test(line)) continue;
           const ev = parseLine(line);
-          if (ev) { ev.source = state.source; events.push(ev); }
+          if (ev) { ev.source = state.source; if (ev.kind === 'prompt') ev.file = p; events.push(ev); }
         }
       }
       return events;
