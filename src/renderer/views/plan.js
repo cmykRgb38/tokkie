@@ -20,6 +20,30 @@ export function planView(root, api) {
   finish.addEventListener('change', commitFinish);
   finish.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish.blur(); } });
 
+  // ✨ Optimize what's in the box (the same rewrite the Claude bar's button does, but here you copy the result)
+  const optBtn = el('button', { class: 'btn sm', type: 'button', text: '✨ Optimize', title: 'Ask Claude for a clearer version of this prompt' });
+  const optBox = el('div', { class: 'opt', hidden: true });
+  optBtn.addEventListener('click', async () => {
+    const text = ta.value;
+    if (!text.trim()) { flash('Paste a prompt first, then Optimize.'); return; }
+    optBtn.disabled = true; optBtn.textContent = 'Optimizing…';
+    optBox.hidden = false; optBox.replaceChildren(el('p', { class: 'muted', text: 'Asking Claude for a clearer version…' }));
+    let r;
+    try { r = await api.optimize(text); } catch { r = { ok: false, error: 'Something went wrong.' }; } finally { optBtn.disabled = false; optBtn.textContent = '✨ Optimize'; }
+    if (!r || !r.ok) { optBox.replaceChildren(el('p', { class: 'muted', style: 'color:var(--bad)', text: (r && r.error) || 'Couldn’t optimize.' })); return; }
+    optBox.replaceChildren(...[
+      el('div', { class: 'row' }, el('span', { class: 'label', text: `✨ ${r.before.promptTokens} → ${r.after.promptTokens} tokens · ${r.model[0].toUpperCase() + r.model.slice(1)}` }),
+        el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', title: 'Close', onclick: () => { optBox.hidden = true; } }, icon('x'))),
+      el('div', { class: 'rfull', text: r.optimized }),
+      r.changes.length ? el('ul', { class: 'optlist' }, r.changes.map((c) => el('li', { text: c }))) : null,
+      r.questions.length ? el('div', { class: 'optq' }, el('b', { text: 'Fill in before sending: ' }), r.questions.join(' · ')) : null,
+      el('div', { class: 'row', style: 'gap:6px;justify-content:flex-start' },
+        el('button', { class: 'btn sm primary', type: 'button', text: 'Copy optimized', onclick: async () => { await api.copyText(r.optimized); flash('Optimized prompt copied — paste it into Claude.'); } }),
+        el('button', { class: 'btn sm', type: 'button', text: 'Use it here', title: 'Put it in the box above and estimate it', onclick: () => { ta.value = r.optimized; ta.dispatchEvent(new Event('input', { bubbles: true })); optBox.hidden = true; } })),
+      el('p', { class: 'muted', text: 'A clearer prompt saves by avoiding wasted steps, not by being shorter — so it may be a little longer. Send it, then compare in Recent runs.' }),
+    ].filter(Boolean));
+  });
+
   const ta = el('textarea', { class: 'input', rows: 2, placeholder: 'Paste your prompt here…', 'aria-label': 'Prompt to estimate', spellcheck: 'false' });
   const meta = el('span', { class: 'muted num' });
   const clipBtn = el('button', { class: 'btn sm', type: 'button', title: 'Estimate whatever is on your clipboard', onclick: () => api.estimateClipboard() }, icon('clip'), 'Clipboard');
@@ -29,11 +53,13 @@ export function planView(root, api) {
   const runsBox = el('div', { class: 'runs' });
   root.append(el('div', { class: 'stack' },
     el('div', { class: 'row' }, el('label', { class: 'label', style: 'display:flex;align-items:center;gap:8px;white-space:nowrap' }, 'Done by', finish), clipBtn),
-    el('div', { style: 'display:grid;gap:6px' }, ta, meta),
+    el('div', { style: 'display:grid;gap:6px' }, ta, el('div', { class: 'row' }, meta, optBtn)),
+    optBox,
     out, runsBox));
 
   let S = null, last = null, timer = null, seq = 0, charsText = '', untilText = '';
   let flashText = '', flashUntil = 0;
+  const flash = (msg) => { flashText = msg; flashUntil = Date.now() + 6000; paintMeta(); setTimeout(paintMeta, 6100); };
   const paintMeta = () => {
     const flashing = Date.now() < flashUntil;
     meta.textContent = flashing ? flashText : [charsText, untilText].filter(Boolean).join(' · ');
@@ -151,7 +177,7 @@ export function planView(root, api) {
       if (!last && !ta.value.trim()) empty();
       else if (last && s.now - last.now > 30000) rerun();     // keep ETAs honest as the clock moves
     },
-    flash(msg) { flashText = msg; flashUntil = Date.now() + 6000; paintMeta(); setTimeout(paintMeta, 6100); },
+    flash,
     setText(text) { ta.value = text.slice(0, 20000); run(); },
     setResult(text, result) { ta.value = text.slice(0, 20000); charsText = `${text.length.toLocaleString()} chars · ≈${fmtTokens(result.promptTokens)} tokens`; render(result); },
     focus() { ta.focus(); },

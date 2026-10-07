@@ -1,17 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { Engine, Register, SessionRateLimit } from 'claude-code'
 
-import type { Band, BandItem } from '../types'
+import type { Band, BandItem, OptState } from '../types'
 
 // Tokkie bridge — the desktop pet's eyes inside Claude Code.
 // It only READS what Claude Code already measures ($.session.usage) and writes it to one file per
 // session under ~/.tokkie/bridge/, plus plan limits (when the account has them) to ~/.tokkie/rate_limits.json.
 // When you pick "Dock: in Claude Code" in Tokkie, it also draws Tokkie's Dock as a bar above the prompt (from ~/.tokkie/band.json).
-// No network, no prompts changed, no programs run.
+// When you ask Tokkie to optimize a prompt, it also asks Claude for a rewrite (on your own Claude login).
+// No prompts changed, no programs run.
 
 const MAX_TURNS = 30
 const BAND_STALE_MS = 2 * 60e3      // Tokkie rewrites band.json every few seconds; older means Tokkie is closed
 const band = atom({ plugin: 'tokkie-bridge', key: 'band' } as const, null as Band)
+const opt = atom({ plugin: 'tokkie-bridge', key: 'opt' } as const, { busy: false } as OptState)
 
 // What each finished prompt cost, newest last: { at, usd }. The module's own memory: a reload starts it over.
 let turns: { at: number; usd: number }[] = []
@@ -89,11 +91,12 @@ async function refreshBand($: Engine) {
     const dir = await tokkieHome($)
     const j = JSON.parse(await $.fs.read(`${dir}/band.json`) as string)
     const fresh = Number.isFinite(j.updatedAt) && (await $.clock.now()) - j.updatedAt < BAND_STALE_MS
-    if (fresh && j.show === true && Array.isArray(j.items)) {
+    const optimizer = j.optimizer && ['haiku', 'sonnet', 'opus'].includes(j.optimizer.model) ? { model: j.optimizer.model } : undefined
+    if (fresh && (j.show === true || optimizer) && Array.isArray(j.items)) {
       const items: BandItem[] = j.items.slice(0, 10).filter((x: any) => x && typeof x.label === 'string' && typeof x.value === 'string')
         .map((x: any) => ({ k: typeof x.k === 'string' ? x.k.slice(0, 16) : '', label: x.label.slice(0, 24), value: x.value.slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: typeof x.tip === 'string' ? x.tip.slice(0, 200) : '' }))
       const avatar = typeof j.avatar === 'string' && j.avatar.startsWith('<svg') && j.avatar.length < 20000 ? j.avatar : undefined
-      next = { items, alert: typeof j.alert === 'string' && j.alert ? j.alert.slice(0, 120) : undefined, avatar }
+      next = { items: j.show === true ? items : [], showItems: j.show === true, optimizer, alert: j.show === true && typeof j.alert === 'string' && j.alert ? j.alert.slice(0, 120) : undefined, avatar }
     }
   } catch { /* no file: Tokkie isn't showing a bar */ }
   const prev = await read($, band)
@@ -101,6 +104,98 @@ async function refreshBand($: Engine) {
 }
 
 // Chip colours (border + value), and a neutral for chips with nothing to flag.
+// ---- prompt optimizer --------------------------------------------------------------------------------------------
+// Tokkie drops a request in ~/.tokkie/requests/<id>.json; the first Claude Code session that claims it asks Claude
+// (on the user's own login) and writes ~/.tokkie/responses/<id>.json. Nothing else is read or sent.
+const OPTIMIZER_SYSTEM = `You improve prompts that a person is about to send to Claude Code, an AI coding agent working in their project.
+Goal: the same intent, but a run that wastes fewer steps and gets a more accurate result.
+Rewrite the prompt so that it:
+- states the goal and the expected outcome specifically;
+- names the files, functions or areas the person mentioned (never invent paths, names or facts);
+- states constraints and scope limits (what not to touch);
+- says what "done" looks like and asks Claude to verify it when that makes sense;
+- drops filler and padding, keeping the person's language and tone (if they wrote in Chinese, answer in Chinese).
+Keep it as short as it can be while being clear. Do not pad it.
+If essential information is missing, do not invent it: add a short [placeholder] only where essential and list it under questions.
+Reply with only a JSON object, no prose and no code fence:
+{"optimized": "<the rewritten prompt>", "changes": ["<up to 4 short phrases>"], "questions": ["<up to 3 short questions, or none>"]}`
+
+let serving = false
+let sessionKey = ''
+async function serveRequests($: Engine) {
+  if (serving) return
+  serving = true
+  try {
+    const dir = await tokkieHome($)
+    let entries: { name: string; kind: string }[] = []
+    try { entries = await $.fs.list(`${dir}/requests`) } catch { return }
+    if (!sessionKey) sessionKey = `${await $.session.id()}-${Math.floor(Math.random() * 1e9)}`
+    for (const e of entries) {
+      if (e.kind !== 'file' || !/^[a-z0-9-]{8,40}\.json$/.test(e.name)) continue
+      const id = e.name.slice(0, -5)
+      const exists = async (f: string) => { try { await $.fs.read(f); return true } catch { return false } }
+      if (await exists(`${dir}/responses/${id}.json`) || await exists(`${dir}/claims/${id}.json`)) continue
+      // claim it; if several sessions race, the last writer wins and only that one answers
+      await $.fs.write(`${dir}/claims/${id}.json`, sessionKey)
+      await $.clock.sleep(400)
+      let owner = ''
+      try { owner = await $.fs.read(`${dir}/claims/${id}.json`) as string } catch { continue }
+      if (owner !== sessionKey) continue
+      let req: any
+      try { req = JSON.parse(await $.fs.read(`${dir}/requests/${e.name}`) as string) } catch { continue }
+      const out: Record<string, unknown> = { id, at: await $.clock.now() }
+      if (req.kind !== 'optimize' || typeof req.prompt !== 'string' || !req.prompt.trim()) out.error = 'bad request'
+      else {
+        const model = ['sonnet', 'opus'].includes(req.model) ? req.model : 'haiku'
+        const r = await $.model.complete({ model, system: OPTIMIZER_SYSTEM, prompt: `<prompt>\n${req.prompt.slice(0, 20000)}\n</prompt>`, maxTokens: 3000, effort: 'low' } as any)
+        if (r.isAnswered) { out.text = r.text; out.usage = r.usage; out.model = model }
+        else out.error = (r as any).reason === 'api-error' ? `Claude returned an error (${(r as any).status ?? '?'})` : `No answer (${(r as any).reason})`
+      }
+      await $.fs.write(`${dir}/responses/${id}.json`, JSON.stringify(out))
+    }
+  } catch { /* never get in Claude's way */ } finally { serving = false }
+}
+
+/** Rough token count (≈ 4 characters a token; CJK ≈ 1 a token) — for the before/after line only. */
+function roughTokens(t: string): number {
+  const cjk = (t.match(/[\u3000-\u9fff\uac00-\ud7af]/g) || []).length
+  return Math.max(1, Math.round((t.length - cjk) / 4 + cjk))
+}
+function parseOptimized(text: string): { optimized: string; changes: string[]; questions: string[] } | null {
+  const a = text.indexOf('{'), b = text.lastIndexOf('}')
+  if (a < 0 || b <= a) return null
+  try {
+    const j = JSON.parse(text.slice(a, b + 1))
+    if (typeof j.optimized !== 'string' || !j.optimized.trim()) return null
+    const list = (x: unknown, n: number) => (Array.isArray(x) ? x.filter((v) => typeof v === 'string' && v.trim() && !/^none\.?$/i.test(v)).map((v: string) => v.trim().slice(0, 120)).slice(0, n) : [])
+    return { optimized: j.optimized.trim(), changes: list(j.changes, 4), questions: list(j.questions, 3) }
+  } catch { return null }
+}
+
+/** ✨ Optimize, from the bar: rewrite what's typed in the prompt box, in place (Undo puts the original back). */
+async function optimizeDraft($: Engine, model: string) {
+  const cur = await read($, opt)
+  if (cur.busy) return
+  const { text } = await $.prompt.read()
+  if (!text.trim()) { await update($, opt, () => ({ busy: false, error: 'Type a prompt first, then Optimize.' })); return }
+  await update($, opt, () => ({ busy: true }))
+  try {
+    const r = await $.model.complete({ model, system: OPTIMIZER_SYSTEM, prompt: `<prompt>\n${text.slice(0, 20000)}\n</prompt>`, maxTokens: 3000, effort: 'low' } as any)
+    const parsed = r.isAnswered ? parseOptimized(r.text) : null
+    if (!parsed) { await update($, opt, () => ({ busy: false, error: r.isAnswered ? 'Claude’s answer wasn’t usable — try again.' : 'Claude couldn’t answer — try again.' })); return }
+    // the person may have kept typing while Claude worked: only replace what we optimized
+    const now = (await $.prompt.read()).text
+    if (now !== text) { await update($, opt, () => ({ busy: false, error: 'You edited the prompt while it was optimizing — press Optimize again.' })); return }
+    await $.prompt.fill({ text: parsed.optimized, mode: 'replace' })
+    await update($, opt, () => ({ busy: false, original: text, optimized: parsed.optimized, before: roughTokens(text), after: roughTokens(parsed.optimized), changes: parsed.changes, questions: parsed.questions }))
+  } catch { await update($, opt, () => ({ busy: false, error: 'Something went wrong — try again.' })) }
+}
+async function undoOptimize($: Engine) {
+  const cur = await read($, opt)
+  if (cur.original) await $.prompt.fill({ text: cur.original, mode: 'replace' })
+  await update($, opt, () => ({ busy: false }))
+}
+
 const TONE: Record<string, string> = { good: '#4fc98a', warn: '#e8b931', bad: '#f06a5f' }
 const NEUTRAL = '#6b6b78'
 const ICON_GREY = '#8d8d99'                 // readable on both light and dark
@@ -134,6 +229,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     try { await refreshBand($); $.clock.every(3000, () => refreshBand($).catch(() => {})) } catch { /* ignore */ }
+    try { $.clock.every(1000, () => serveRequests($).catch(() => {})) } catch { /* ignore */ }
     try {
       const usage = await $.session.usage()
       costBase = usage.cost?.usd ?? null
@@ -165,9 +261,21 @@ export const register: Register = on => {
   // Tokkie's Dock, as a one-line bar above the prompt (only when chosen in Tokkie → Settings → Dock position).
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const b = await read($, band)
-    if (e.props.hasSurvey || !b || !b.items.length) return next(e)
+    if (e.props.hasSurvey || !b || (!b.items.length && !b.optimizer)) return next(e)
     const table = $.ui.resolve(e) as any
-    const { Box, Text } = table
+    const { Box, Text, Button } = table
+    const o = await read($, opt)
+    const model = b.optimizer ? b.optimizer.model : 'haiku'
+    const label = o.busy ? `✨ Optimizing…` : '✨ Optimize'
+    const optButton = b.optimizer && Button ? <Button key="opt" label={label} onPress={() => { if (!o.busy) void optimizeDraft($, model) }} /> : null
+    const undoButton = o.original && Button ? <Button key="undo" label="Undo" onPress={() => { void undoOptimize($) }} /> : null
+    const optLine = o.error ? <Text color={TONE.warn} wrap="truncate">{o.error}</Text>
+      : o.optimized ? (
+        <Box flexDirection="row" columnGap={1} alignItems="center">
+          <Text dimColor wrap="truncate">✨ {`${o.before} → ${o.after} tokens`}{o.changes && o.changes.length ? ` · ${o.changes.join(' · ')}` : ''}{o.questions && o.questions.length ? ` · fill in: ${o.questions.join('; ')}` : ''}</Text>
+          {undoButton}
+        </Box>
+      ) : null
     if (e.surface !== 'terminal' && table.Svg) {
       const Svg = table.Svg as any
       // One slim row: icon + value per item, no boxes. Hovering an item lights it and reveals a line saying
@@ -177,7 +285,8 @@ export const register: Register = on => {
         <Box flexDirection="column" overflow="hidden">
           {b.alert ? <Text color={TONE.bad} wrap="truncate">⚠ {b.alert}</Text> : null}
           <Box flexDirection="row" flexWrap="nowrap" overflow="hidden" alignItems="center" columnGap={1}>
-            {b.avatar ? (
+            {optButton}
+            {b.avatar && b.showItems ? (
               <Box key="tk" paddingRight={1} hover={{ scope: 'tokkie-about', backgroundColor: HL }}>
                 <Svg source={b.avatar} alt="Tokkie" width={avatarWidth(b.avatar, AVATAR_H)} height={AVATAR_H} />
               </Box>
@@ -192,6 +301,7 @@ export const register: Register = on => {
               )
             })}
           </Box>
+          {optLine}
           <Box key="tip-about" display="none" hover={{ scope: 'tokkie-about', display: 'flex' }}>
             <Text dimColor wrap="truncate">Tokkie — your usage pet. Hover an item to see what it means.</Text>
           </Box>
@@ -207,8 +317,10 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {b.alert ? <Text color={TONE.bad} wrap="truncate">! {b.alert}</Text> : null}
+        {optLine}
         <Box flexDirection="row" flexWrap="nowrap" overflow="hidden" columnGap={2}>
-          <Text bold>Tokkie</Text>
+          {optButton}
+          {b.showItems ? <Text bold>Tokkie</Text> : null}
           {b.items.map((it, i) => (
             <Text key={String(i)} wrap="truncate"><Text color={it.tone ? TONE[it.tone] : NEUTRAL}>{GLYPH[it.k] || '•'} </Text><Text color={it.tone ? TONE[it.tone] : undefined}>{it.value}</Text></Text>
           ))}

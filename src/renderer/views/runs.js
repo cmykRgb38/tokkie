@@ -15,7 +15,7 @@ const ACC_TXT = { in: '✓ on target', near: '≈ close', off: '✗ off' };
  * @param {object} api  @param {() => void} redraw  called when a card opens/closes or its prompt arrives
  */
 export function runCards(api, redraw, { when = 'ago' } = {}) {
-  const opened = new Set(), texts = new Map(), fulls = new Map();
+  const opened = new Set(), texts = new Map(), fulls = new Map(), opts = new Map();
   function card(s, r) {
     const id = `${r.sessionId}:${r.start}`, isOpen = opened.has(id);
     const share = s.k5 && r.tokens ? (r.tokens / s.k5) * 100 : null;
@@ -47,7 +47,30 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
         else note(`Opened. To jump to this prompt press ${mac ? '⌘F' : 'Ctrl+F'} then ${mac ? '⌘V' : 'Ctrl+V'} in Claude.`, 9000);
       }) }) : null,
       canOpen ? el('button', { class: 'btn sm quiet', type: 'button', text: 'Copy resume command', title: resumeCmd, onclick: stop(async () => { await api.copyText(resumeCmd); note('Copied — paste it in a terminal to continue this conversation.'); }) }) : null);
-    const detail = el('div', { class: 'rdetail', hidden: !isOpen, onclick: (e) => e.stopPropagation() }, full, actions, msg);
+    // ✨ Optimize an old prompt: a better version to copy for next time (asks Claude through the bridge)
+    const optOut = el('div', { class: 'opt', hidden: !opts.has(id) });
+    const drawOpt = () => {
+      const o = opts.get(id); if (!o) return;
+      optOut.hidden = false;
+      if (o.busy) { optOut.replaceChildren(el('p', { class: 'muted', text: 'Asking Claude for a better version…' })); return; }
+      if (!o.ok) { optOut.replaceChildren(el('p', { class: 'muted', style: 'color:var(--bad)', text: o.error })); return; }
+      optOut.replaceChildren(...[
+        el('div', { class: 'label', text: `✨ Better next time · ${o.before} → ${o.after} tokens` }),
+        el('div', { class: 'rfull', text: o.optimized }),
+        o.changes.length ? el('ul', { class: 'optlist' }, o.changes.map((c) => el('li', { text: c }))) : null,
+        o.questions.length ? el('div', { class: 'optq' }, el('b', { text: 'Fill in before sending: ' }), o.questions.join(' · ')) : null,
+        el('button', { class: 'btn sm primary', type: 'button', text: 'Copy optimized', onclick: stop(async () => { await api.copyText(o.optimized); note('Optimized prompt copied.'); }) }),
+      ].filter(Boolean));
+    };
+    drawOpt();
+    actions.prepend(el('button', { class: 'btn sm', type: 'button', text: '✨ Optimize', title: 'Ask Claude for a clearer version of this prompt', onclick: stop(async () => {
+      const text = fulls.get(id) || texts.get(id) || r.preview || '';
+      opts.set(id, { busy: true }); drawOpt();
+      let res; try { res = await api.optimize(text); } catch { res = { ok: false, error: 'Something went wrong.' }; }
+      opts.set(id, res && res.ok ? { ok: true, optimized: res.optimized, changes: res.changes, questions: res.questions, before: res.before.promptTokens, after: res.after.promptTokens } : { ok: false, error: (res && res.error) || 'Couldn’t optimize.' });
+      drawOpt();
+    }) }));
+    const detail = el('div', { class: 'rdetail', hidden: !isOpen, onclick: (e) => e.stopPropagation() }, full, actions, optOut, msg);
     const card = el('div', { class: 'run openable', 'aria-expanded': String(isOpen), tabindex: '0', title: isOpen ? '' : 'Click to see the full prompt' },
       el('div', { class: 'row' }, el('span', { class: 'muted', text: `${when === 'clock' ? fmtTime(r.start) : `${fmtDur((s.now - r.start) / 1000)} ago`}${where ? ` · ${where}` : ''}` }), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
       r.preview && !isOpen ? el('div', { class: 'rprompt', text: `“${r.preview}${r.chars > 140 ? '…' : ''}”` }) : null,

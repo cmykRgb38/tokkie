@@ -229,6 +229,31 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       const good = await js(`window.tokkie.ui.redeem('Diamond')`); await wait(800);
       const st2 = await js(`window.tokkie.getState().then((s) => ({ active: s.settings.monsters.active, album: Object.keys(s.settings.album || {}) }))`);
       ok('a secret code unlocks a special pet, makes it active and adds it to the album', !bad.ok && good.ok && good.kind === 'diamond' && st2.active === good.seed && st2.album.includes('special:diamond') && st2.album.length > albumBefore, JSON.stringify({ bad, good, st2 }).slice(0, 300));
+      // ✨ Optimize, with a stand-in bridge answering the request
+      const home = require('../core/paths').tokkieHome();
+      const fakeBridge = setInterval(() => {
+        let names = []; try { names = require('fs').readdirSync(require('path').join(home, 'requests')); } catch { return; }
+        for (const n of names) { const f = (d) => require('path').join(home, d, n); require('fs').writeFileSync(f('claims'), 'x'); require('fs').writeFileSync(f('responses'), JSON.stringify({ model: 'haiku', text: JSON.stringify({ optimized: 'Fix the login bug in src/auth.ts: users with expired sessions get a blank page. Redirect them to /login and add a test.', changes: ['Named the file', 'Said what done looks like'], questions: [] }) })); }
+      }, 100);
+      const bridgeOn = require('../core/setup').bridgeStatus().installed;
+      await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(500);
+      await js(`document.getElementById('tab-plan').click()`); await wait(300);
+      // new prompt: the Estimate box
+      await js(`(()=>{const t=document.querySelector('#view-plan textarea');t.value='fix the login thing pls';t.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(400);
+      await js(`[...document.querySelectorAll('#view-plan button')].find(b=>b.textContent.trim()==='✨ Optimize' && !b.closest('.run')).click()`); await wait(bridgeOn ? 2500 : 700);
+      const opt = await js(`(()=>{const o=[...document.querySelectorAll('#view-plan .opt')].find(x=>!x.closest('.run'));return {hidden:o.hidden,text:o.textContent.slice(0,400)}})()`);
+      const okText = (o) => !o.hidden && (bridgeOn ? /src\/auth\.ts/.test(o.text) && /tokens/.test(o.text) && !/null/.test(o.text) : /bridge/i.test(o.text));
+      ok('✨ Optimize in the Estimate box shows a clearer version (or explains it needs the bridge)', okText(opt), JSON.stringify(opt).slice(0, 300));
+      // old prompt: a past run's card
+      const hasRun = await js(`!!document.querySelector('#view-plan .runlist .run')`);
+      if (hasRun) {
+        await js(`(()=>{const r=document.querySelector('#view-plan .runlist .run');if(r.getAttribute('aria-expanded')!=='true')r.click();})()`); await wait(900);
+        await js(`[...document.querySelectorAll('#view-plan .runlist .run .ractions button')].find(b=>b.textContent.includes('Optimize')).click()`); await wait(bridgeOn ? 2500 : 700);
+        const opt2 = await js(`(()=>{const o=document.querySelector('#view-plan .runlist .run .opt');return {hidden:o.hidden,text:o.textContent.slice(0,400)}})()`);
+        ok('✨ Optimize on a past run shows a better version (or explains it needs the bridge)', okText(opt2), JSON.stringify(opt2).slice(0, 300));
+      }
+      clearInterval(fakeBridge);
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(300);
       ok('no renderer console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
     } catch (e) { ok('e2e harness threw', false, e.stack); }
     const failed = results.filter((r) => !r[1]).length;

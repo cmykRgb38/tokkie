@@ -48,6 +48,9 @@ export function settingsView(root, api) {
   };
   const spendRow = el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Spend limit ($ / month)' }), el('div', { class: 'd', text: 'If Claude’s Usage page shows a $ limit, enter it to see dollars.' })), spendIn);
   const dayRow = el('div', { class: 'row sub' }, el('div', {}, el('div', { class: 't', text: 'Next reset' }), el('div', { class: 'd', text: 'The date under “Resets …” on Claude’s Usage page. Repeats monthly.' })), dayIn);
+  const optModel = mkSeg([['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']], 'optimizerModel');
+  const optRow = el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: '✨ Prompt optimizer' }), el('div', { class: 'd', text: 'Haiku: fast & cheapest. Sonnet: reads intent better. Opus: best, slowest, most usage.' })), optModel.node);
+  const optBtnT = toggle('Optimize button in Claude Code', 'A ✨ Optimize button above Claude’s prompt box rewrites what you typed (Undo puts it back). Needs the bridge.', 'optimizeButton', api);
   const theme = mkSeg([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], 'theme');
   const size = mkSeg([[5, 'S'], [6, 'M'], [8, 'L']], 'scale', Number);
 
@@ -89,7 +92,7 @@ export function settingsView(root, api) {
   root.append(el('div', { class: 'stack' },
     el('div', { class: 'set' },
       el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Claude Code bridge' }), limitStatus), limitBtn),
-      limitMsg, spendRow, dayRow,
+      limitMsg, spendRow, dayRow, optRow, optBtnT.row,
       el('div', { class: 'row' }, el('div', { class: 't', text: 'Layout' }), layout.node), dockBox,
       el('div', { class: 'row' }, el('div', { class: 't', text: 'Theme' }), theme.node),
       el('div', { class: 'row' }, el('div', { class: 't', text: 'Pet size' }), size.node),
@@ -111,7 +114,7 @@ export function settingsView(root, api) {
   return {
     update(s) {
       S = s; const st = s.settings;
-      theme.set(st.theme); size.set(st.scale); layout.set(st.layout);
+      theme.set(st.theme); size.set(st.scale); layout.set(st.layout); optModel.set(st.optimizerModel || 'haiku');
       dockBox.hidden = st.layout === 'pet';
       placeRow.hidden = st.layout !== 'dock'; place.set(st.dockPlace || 'below');
       placeNote.hidden = st.layout !== 'dock' || st.dockPlace !== 'claude';
@@ -130,6 +133,7 @@ export function settingsView(root, api) {
       hotStatus.textContent = !ok ? '● Not active — another app is using it. Record a different one.'
         : fresh ? '✓ Received! The shortcut works.' : hk && hk.firedAt ? `● Active · last used ${fmtDur((Date.now() - hk.firedAt) / 1000)} ago` : '● Active — press it now to test';
       hotStatus.style.color = ok ? 'var(--good)' : 'var(--bad)';
+      optBtnT.sw.setAttribute('aria-checked', String(st.optimizeButton !== false));
       for (const [t, k] of [[alertT, 'alertBubble'], [bubbleT, 'speechBubble'], [clip, 'clipboardWatch'], [notify, 'notifyDone'], [login, 'launchAtLogin'], [top, 'alwaysOnTop']]) t.sw.setAttribute('aria-checked', String(!!st[k]));
       bubbleT.sw.disabled = st.alertBubble === false; bubbleT.row.style.opacity = st.alertBubble === false ? '.5' : '';
       login.sw.disabled = !s.packaged; login.row.title = s.packaged ? '' : 'Available in the installed app';

@@ -72,11 +72,12 @@ let bandLast = '', bandAt = 0;
 function writeBand(b) {
   try {
     const avatar = b && typeof b.avatar === 'string' && /^<svg[^]*<\/svg>$/.test(b.avatar) && b.avatar.length < 20000 && !/<script|on\w+=/i.test(b.avatar) ? b.avatar : '';
-    const clean = { show: !!(b && b.show), alert: b && typeof b.alert === 'string' ? b.alert.slice(0, 120) : '', avatar,
+    const optimizer = settings.get('optimizeButton') && setup.bridgeStatus().installed ? { model: settings.get('optimizerModel') || 'haiku' } : undefined;
+    const clean = { show: !!(b && b.show), optimizer, alert: b && typeof b.alert === 'string' ? b.alert.slice(0, 120) : '', avatar,
       items: (b && Array.isArray(b.items) ? b.items : []).slice(0, 10).map((x) => ({ k: String(x.k || '').slice(0, 16), label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: String(x.tip || '').slice(0, 200) })) };
     const key = JSON.stringify(clean), now = Date.now();
     if (key === bandLast && now - bandAt < 30e3) return;          // rewrite unchanged content only to keep it fresh
-    if (!clean.show && bandLast && !JSON.parse(bandLast).show && now - bandAt < 300e3) return;
+    if (!clean.show && !clean.optimizer && bandLast && !JSON.parse(bandLast).show && now - bandAt < 300e3) return;
     bandLast = key; bandAt = now;
     const dir = require('../core/paths').tokkieHome();
     fs.mkdirSync(dir, { recursive: true });
@@ -211,7 +212,7 @@ function setupIpc() {
   ipcMain.handle('settings:set', (_e, patch) => {
     const out = { ok: true };
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, error: 'bad request' };
-    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills'];
+    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton'];
     const clean = {};
     for (const k of allowed) if (Object.prototype.hasOwnProperty.call(patch, k)) clean[k] = patch[k];
     const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'alertBubble', 'speechBubble'];
@@ -231,6 +232,8 @@ function setupIpc() {
     if ('personality' in clean && !['cheerful', 'playful', 'sleepy', 'grumpy', 'shy'].includes(clean.personality)) delete clean.personality;
     for (const key of ['dock', 'pills']) if (key in clean) { const d = clean[key] || {}, cur = settings.get(key); clean[key] = { ...cur }; for (const k of Object.keys(cur)) if (typeof d[k] === 'boolean') clean[key][k] = d[k]; }
     if ('dockPlace' in clean && !['below', 'above', 'claude'].includes(clean.dockPlace)) delete clean.dockPlace;
+    if ('optimizerModel' in clean && !['haiku', 'sonnet', 'opus'].includes(clean.optimizerModel)) delete clean.optimizerModel;
+    if ('optimizeButton' in clean) clean.optimizeButton = !!clean.optimizeButton;
     if ('hotkey' in clean && (typeof clean.hotkey !== 'string' || clean.hotkey.length > 60)) delete clean.hotkey;
     if ('monsters' in clean && (!clean.monsters || typeof clean.monsters !== 'object')) delete clean.monsters;
     if ('window' in clean) { const w = clean.window || {}; clean.window = {}; for (const k of ['x', 'y']) if (Number.isFinite(w[k])) clean.window[k] = Math.round(w[k]); if (typeof w.expanded === 'boolean') clean.window.expanded = w.expanded; if (['usage', 'plan', 'history', 'pets', 'settings'].includes(w.tab)) clean.window.tab = w.tab; }
@@ -317,6 +320,21 @@ function setupIpc() {
     try { await shell.openExternal(`claude://resume?session=${id}`); return { ok: true }; } catch { return { ok: false }; }
   });
   ipcMain.handle('runs:history', () => engine.history());
+  // ✨ Optimize: Claude rewrites the prompt (through the bridge, on the user's own login); we compare both estimates.
+  let optimizing = false;
+  ipcMain.handle('prompt:optimize', async (_e, text) => {
+    text = String(text || '').slice(0, 20000);
+    if (!text.trim()) return { ok: false, error: 'Paste a prompt first.' };
+    if (!setup.bridgeStatus().installed) return { ok: false, error: 'Optimize uses the Claude Code bridge. Connect it in Settings first.' };
+    if (optimizing) return { ok: false, error: 'Already optimizing one — hang on.' };
+    optimizing = true;
+    try {
+      const r = await require('../core/optimizer').optimize(require('../core/paths').tokkieHome(), text, settings.get('optimizerModel'));
+      if (!r.ok) return r;
+      const { estimateTokens } = require('../core/tokens');
+      return { ...r, before: { promptTokens: estimateTokens(text) }, after: { promptTokens: estimateTokens(r.optimized) } };
+    } finally { optimizing = false; }
+  });
   // Secret codes → special pets. Wrong guesses are rate-limited so the codes can't be brute-forced from the UI.
   let codeTries = [];
   ipcMain.handle('pets:redeem', (_e, code) => {
@@ -357,6 +375,7 @@ else {
     registerHotkey(settings.get('hotkey')) || console.warn('hotkey unavailable');
     setup.refreshHook({ hookSource: path.join(__dirname, '..', '..', 'scripts', 'statusline-hook.js') });
     setup.refreshBridge({ bridgeSource: BRIDGE_SOURCE });
+    require('../core/optimizer').sweep(require('../core/paths').tokkieHome());
     const reclamp = () => { if (win && !win.isDestroyed()) win.setBounds(clampToWork(win.getBounds())); };
     screen.on('display-removed', reclamp); screen.on('display-metrics-changed', reclamp);
 

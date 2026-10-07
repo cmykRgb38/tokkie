@@ -42,6 +42,7 @@ const api = {
   promptText: (sid, uuid) => bridge.ui.promptText(sid, uuid),
   history: () => bridge.ui.history(),
   redeem: (code) => bridge.ui.redeem(code),
+  optimize: (text) => bridge.ui.optimize(text),
   platform: () => (S ? S.platform : ''),
   hide: () => bridge.ui.hide(), quit: () => bridge.ui.quit(),
 };

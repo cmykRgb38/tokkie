@@ -78,3 +78,48 @@ test('no bar when Tokkie is closed (stale file) or the bar is switched off', asy
   expect(await ui.find({ type: 'Text', text: /54%/ } as never)).toBeUndefined()
   await ui.unmount()
 })
+
+test('answers Tokkie’s optimize request once, on the user’s own Claude, and writes the reply back', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_900_000_000_000 })
+  const files = fakeHost(on, { cost: 1, limits: [] })
+  const H = '/private/tmp/tokkie-bridge-test/.tokkie'
+  files[`${H}/requests/abc12345.json`] = JSON.stringify({ kind: 'optimize', model: 'haiku', prompt: 'fix the login thing pls' })
+  let asked: any = null
+  on('fs.list', (_: unknown, e: { path: string }) => ({ value: Object.keys(files).filter((f) => f.startsWith(e.path + '/')).map((f) => ({ name: f.slice(e.path.length + 1), kind: 'file', size: 1, mtimeMs: 0, isLink: false })) }))
+  on('model.complete', (_: unknown, e: any) => { asked = e; return { value: { isAnswered: true, text: '{"optimized":"Fix the login bug in auth.ts","changes":["Named the file"],"questions":[]}', usage: { input_tokens: 400, output_tokens: 60 } } } })
+  await $.session.start({ source: 'startup', cwd: '/work' } as never)
+  await clock.advance(2500)
+  const res = JSON.parse(files[`${H}/responses/abc12345.json`])
+  expect(asked.model).toBe('haiku')
+  expect(asked.prompt.includes('fix the login thing pls')).toBe(true)
+  expect(res.text.includes('auth.ts')).toBe(true)
+  // already answered: not asked again
+  asked = null
+  await clock.advance(3000)
+  expect(asked).toBe(null)
+})
+
+test('✨ Optimize on the bar rewrites the typed prompt in place, and Undo puts it back', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_900_000_000_000 })
+  const files = fakeHost(on, { cost: 1, limits: [] })
+  files['/private/tmp/tokkie-bridge-test/.tokkie/band.json'] = JSON.stringify({ updatedAt: 1_900_000_000_000 - 1000, show: false, items: [], optimizer: { model: 'sonnet' } })
+  let draft = 'fix the login thing pls', asked: any = null
+  on('prompt.read', () => ({ value: { text: draft, cursor: draft.length } }))
+  on('prompt.fill', (_: unknown, e: any) => { draft = e.text; return { isFilled: true } })
+  on('model.complete', (_: unknown, e: any) => { asked = e; return { value: { isAnswered: true, text: '{"optimized":"Fix the login bug in src/auth.ts and add a test.","changes":["Named the file"],"questions":[]}', usage: { input_tokens: 1, output_tokens: 1 } } } })
+  on('ui.render', ($$: any, e: any) => { const { Box } = $$.ui.resolve(e); return <Box key="engine" /> })
+  await $.session.start({ source: 'startup', cwd: '/work' } as never)
+  await clock.advance(10)
+  for (const surface of ['desktop', 'terminal'] as const) {
+    draft = 'fix the login thing pls'
+    const ui = await $.ui.mount({ plugin: 'tokkie-bridge', surface, component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
+    expect(await ui.find({ key: 'opt' } as never)).toBeDefined()
+    await ui.press({ key: 'opt' } as never)
+    expect(asked.model).toBe('sonnet')
+    expect(draft).toBe('Fix the login bug in src/auth.ts and add a test.')
+    expect(await ui.find({ type: 'Text', text: /Named the file/ } as never)).toBeDefined()
+    await ui.press({ key: 'undo' } as never)
+    expect(draft).toBe('fix the login thing pls')
+    await ui.unmount()
+  }
+})
