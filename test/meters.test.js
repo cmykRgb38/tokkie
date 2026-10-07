@@ -64,7 +64,8 @@ test('estimate is paired with the run it predicted, and the run log reports both
   const run = eng.recentRuns(1)[0];
   assert.equal(run.chars, prompt.length); assert.ok(run.est, 'estimate attached');
   assert.equal(run.est.dur.p50, est.duration.p50); assert.ok(run.headline > 0);
-  assert.equal(settings.get('samples').at(-1).est.dur.p50, est.duration.p50, 'persisted with the run');
+  eng.runLog.save(eng.store.samples);
+  assert.equal(eng.runLog.load().at(-1).est.dur.p50, est.duration.p50, 'persisted with the run');
   // a run nobody estimated has no est
   fs.appendFileSync(path.join(proj, 's.jsonl'), [U(t0 + 20000, 'something totally different and much longer than before, never estimated'), A(t0 + 26000, 'c', { o: 10, stop: 'end_turn' })].join('\n') + '\n');
   const done2 = new Promise((r) => eng.once('turn-end', r)); await eng.tailer.poll(); await done2;

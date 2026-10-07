@@ -33,7 +33,8 @@ test('end-to-end: logs → snapshot → live turn → sample → estimate', asyn
   snap = eng.snapshot(); assert.equal(snap.active, null); assert.equal(snap.samples, 1);
   const est = eng.estimate('please refactor the whole module and add tests');
   assert.ok(est.promptTokens > 5); assert.ok(est.duration.p50 > 0); assert.ok(['go', 'tight', 'stop', 'over'].includes(est.plan.verdict));
-  assert.equal(settings.get('samples').length, 1, 'samples persisted');
+  eng.runLog.save(eng.store.samples);
+  assert.equal(eng.runLog.load().length, 1, 'runs persisted to runs.json');
   eng.stop(); fs.rmSync(dir, { recursive: true });
 });
 
@@ -140,4 +141,24 @@ test('full prompt text is read on demand, in chunks, and long prompts are trimme
   assert.equal(t.full, long.trim());
   assert.equal(await eng.promptText(run.sessionId, 'not-a-real-id'), null);
   eng.stop(); fs.rmSync(dir, { recursive: true });
+});
+
+test('history groups every remembered run by day, newest first, and survives a restart via runs.json', async () => {
+  const { dir, proj, eng, settings } = rig();
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const t1 = today.getTime() - 2 * 86400e3, t2 = Math.min(Date.now() - 60e3, today.getTime());
+  fs.writeFileSync(path.join(proj, 's.jsonl'), [U(t1, 'old prompt'), A(t1 + 6000, 'a', { o: 500, stop: 'end_turn' }), U(t2, 'new prompt'), A(t2 + 8000, 'b', { o: 700, stop: 'end_turn' })].join('\n') + '\n');
+  await eng.start();
+  const h = eng.history();
+  assert.equal(h.days.length, 2);
+  assert.ok(h.days[0].day > h.days[1].day);
+  assert.equal(h.days[0].runs[0].preview, 'new prompt'); assert.equal(h.days[1].runs[0].preview, 'old prompt');
+  assert.ok(h.days[0].tokens > 0 && h.days[0].seconds === 8);
+  eng.stop();
+  // a fresh engine (the logs are gone) still has the runs
+  fs.rmSync(path.join(proj, 's.jsonl'));
+  const eng2 = new Engine({ settings, env: { TOKKIE_HOME: path.join(dir, 'lh') }, home: dir, roots: () => [{ dir: path.join(dir, 'projects'), source: 'code' }] });
+  await eng2.start();
+  assert.equal(eng2.history().days.length, 2);
+  eng2.stop(); fs.rmSync(dir, { recursive: true });
 });

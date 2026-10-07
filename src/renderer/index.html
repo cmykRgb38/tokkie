@@ -19,6 +19,7 @@
     <symbol id="i-save" viewBox="0 0 24 24"><path d="M7 4h10a1 1 0 0 1 1 1v15l-6-4-6 4V5a1 1 0 0 1 1-1z"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
     <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v4M15 3v4M6 7h12v3a6 6 0 0 1-12 0V7zM12 16v5"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.75" cy="6.5" r=".9" fill="currentColor"/><circle cx="4.75" cy="12" r=".9" fill="currentColor"/><circle cx="4.75" cy="17.5" r=".9" fill="currentColor"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
     <symbol id="i-clip" viewBox="0 0 24 24"><rect x="6" y="5" width="12" height="16" rx="2"/><path d="M9 5V4h6v1M9.5 11h5M9.5 15h5"/></symbol>
   </defs>
@@ -47,6 +48,7 @@
     <div class="views">
       <section class="view" id="view-usage" role="tabpanel" aria-labelledby="tab-usage"></section>
       <section class="view" id="view-plan" role="tabpanel" aria-labelledby="tab-plan" hidden></section>
+      <section class="view" id="view-history" role="tabpanel" aria-labelledby="tab-history" hidden></section>
       <section class="view" id="view-pets" role="tabpanel" aria-labelledby="tab-pets" hidden></section>
       <section class="view" id="view-settings" role="tabpanel" aria-labelledby="tab-settings" hidden></section>
     </div>
@@ -54,6 +56,7 @@
     <nav class="tabs" role="tablist" aria-label="Sections">
       <button role="tab" id="tab-usage" data-tab="usage" aria-selected="true"><svg class="ic"><use href="#i-gauge"/></svg><span>Usage</span></button>
       <button role="tab" id="tab-plan" data-tab="plan" aria-selected="false"><svg class="ic"><use href="#i-clock"/></svg><span>Estimate</span></button>
+      <button role="tab" id="tab-history" data-tab="history" aria-selected="false"><svg class="ic"><use href="#i-list"/></svg><span>History</span></button>
       <button role="tab" id="tab-pets" data-tab="pets" aria-selected="false"><svg class="ic"><use href="#i-paw"/></svg><span>Pets</span></button>
       <button role="tab" id="tab-settings" data-tab="settings" aria-selected="false"><svg class="ic"><use href="#i-gear"/></svg><span>Settings</span></button>
     </nav>

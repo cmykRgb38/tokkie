@@ -41,6 +41,8 @@ class SpendLedger {
 
   /** Dollars observed after `t` (bucketed to 5 minutes, so a bucket that straddles t counts in full). */
   since(t) { let s = 0; for (const [b, usd] of this.state.events) if (b + BUCKET_MS > t) s += usd; return s; }
+  /** Dollars observed in [a, b) (by 5-minute bucket). */
+  between(a, b) { let s = 0; for (const [t, usd] of this.state.events) if (t >= a && t < b) s += usd; return s; }
   /** Whether the bridge has been reporting since before `t` (so dollars after t are complete). */
   covers(t) { return !!this.state.bridgeSince && this.state.bridgeSince <= t; }
   /** Claude Code session ids whose dollars the ledger already counts. */

@@ -31,5 +31,6 @@ contextBridge.exposeInMainWorld('tokkie', {
     openSession: (id) => ipcRenderer.invoke('ui:openSession', id),
     copyText: (t) => ipcRenderer.invoke('ui:copyText', t),
     promptText: (sid, uuid) => ipcRenderer.invoke('run:prompt', sid, uuid),
+    history: () => ipcRenderer.invoke('runs:history'),
   },
 });

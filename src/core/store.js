@@ -4,6 +4,7 @@ const { weighted, headline } = require('./parser');
 const H = 3600e3, DAY = 24 * H;
 const MAX_TURN_MS = 4 * H, MIN_TURN_MS = 2500, STALE_TURN_MS = 15 * 60e3;
 const KEEP_MS = 8 * DAY;
+const MAX_SAMPLES = 5000;         // ≈ 90 days of runs for the History tab
 
 /**
  * In-memory ledger fed by parsed events. Idempotent: replaying the same log lines never double counts
@@ -37,7 +38,7 @@ class Store {
     this.sampleKeys.add(key);
     this.samples.push(s);
     this.samples.sort((a, b) => a.start - b.start);
-    if (this.samples.length > 500) { const x = this.samples.shift(); this.sampleKeys.delete(`${x.sessionId}:${x.start}`); }
+    if (this.samples.length > MAX_SAMPLES) { const x = this.samples.shift(); this.sampleKeys.delete(`${x.sessionId}:${x.start}`); }
     return true;
   }
 
@@ -201,4 +202,4 @@ class Store {
   }
 }
 
-module.exports = { Store, H, DAY };
+module.exports = { Store, H, DAY, MAX_SAMPLES };

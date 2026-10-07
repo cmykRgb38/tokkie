@@ -4,6 +4,7 @@ import { usageView, kindUsed } from './views/usage.js';
 import { alertState, acknowledge } from './alerts.js';
 import { planView } from './views/plan.js';
 import { petsView } from './views/pets.js';
+import { historyView } from './views/history.js';
 import { settingsView } from './views/settings.js';
 
 if (!window.tokkie) await import('./dev/mock.js'); // opened in a plain browser: run against a mock backend
@@ -11,7 +12,7 @@ const bridge = window.tokkie;
 const M = window.TokkieMonster;
 
 const PANEL_W = 336, PANEL_H = 504, GAP = 6, MARGIN = 14;
-const TABS = ['usage', 'plan', 'pets', 'settings'];
+const TABS = ['usage', 'plan', 'history', 'pets', 'settings'];
 
 const bubbleEl = $('#bubble'), bubbleTitle = $('#bubbleTitle'), bubbleSub = $('#bubbleSub');
 const appEl = $('#app'), stage = $('#stage'), canvas = $('#pet'), pills = $('#pills'), dockEl = $('#dock');
@@ -39,12 +40,13 @@ const api = {
   openSession: (id) => bridge.ui.openSession(id),
   copyText: (t) => bridge.ui.copyText(t),
   promptText: (sid, uuid) => bridge.ui.promptText(sid, uuid),
+  history: () => bridge.ui.history(),
   platform: () => (S ? S.platform : ''),
   hide: () => bridge.ui.hide(), quit: () => bridge.ui.quit(),
 };
 const views = {
   usage: usageView($('#view-usage'), api), plan: planView($('#view-plan'), api),
-  pets: petsView($('#view-pets'), api), settings: settingsView($('#view-settings'), api),
+  pets: petsView($('#view-pets'), api), settings: settingsView($('#view-settings'), api), history: historyView($('#view-history'), api),
 };
 
 // ------------------------------------------------------------------------------------- pet
@@ -444,7 +446,7 @@ document.addEventListener('visibilitychange', () => { pet.visible = !document.hi
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => selectTab(b.dataset.tab)));
 $('.tabs').addEventListener('keydown', (e) => {
   const i = TABS.indexOf(tab); const n = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : null;
-  if (n == null) return; e.preventDefault(); const t = TABS[(n + 4) % 4]; selectTab(t); $(`#tab-${t}`).focus();
+  if (n == null) return; e.preventDefault(); const t = TABS[(n + TABS.length) % TABS.length]; selectTab(t); $(`#tab-${t}`).focus();
 });
 $('#collapse').addEventListener('click', () => setMode('collapsed'));
 

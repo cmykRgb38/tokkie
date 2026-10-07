@@ -37,18 +37,19 @@ test('settings tolerate corrupt / hostile files', () => {
   }
 });
 
-test('turn-end fires beyond the 500-sample cap and reports the turn that just finished', () => {
-  const T = Date.now() - 3600e3, s = new Store(); const got = [];
-  for (let i = 0; i < 510; i++) { // fill past the cap with historic turns
-    const t = T + i * 1000 * 60; s.ingest(parseLine(U(t, 'hi', { s: 'old' }))); s.ingest(parseLine(A(t + 5000, 'm' + i, { s: 'old', stop: 'end_turn' })));
+test('turn-end fires beyond the sample cap and reports the turn that just finished', () => {
+  const { MAX_SAMPLES } = require('../src/core/store');
+  const T = Date.now() - 400 * 3600e3, s = new Store(); const got = [];
+  for (let i = 0; i < MAX_SAMPLES + 10; i++) { // fill past the cap with historic turns
+    const t = T + i * 1000 * 4; s.ingest(parseLine(U(t, 'hi', { s: 'old' }))); s.ingest(parseLine(A(t + 5000, 'm' + i, { s: 'old', stop: 'end_turn' })));
   }
-  assert.equal(s.samples.length, 500);
+  assert.equal(s.samples.length, MAX_SAMPLES);
   s.onSample = (x) => got.push(x);
   const t = Date.now() - 20000;
   s.ingest(parseLine(U(t, 'one', { s: 'S1' }))); s.ingest(parseLine(U(t + 100, 'two', { s: 'S2' })));
   s.ingest(parseLine(A(t + 9000, 'a1', { s: 'S1', stop: 'end_turn' }))); s.ingest(parseLine(A(t + 9500, 'a2', { s: 'S2', stop: 'end_turn' })));
   assert.equal(got.length, 2, 'both concurrent turns reported'); assert.deepEqual(got.map((g) => g.sessionId).sort(), ['S1', 'S2']);
-  assert.equal(s.samples.length, 500);
+  assert.equal(s.samples.length, MAX_SAMPLES);
 });
 
 test('slash-command wrapper lines do not start a phantom turn', () => {

@@ -171,8 +171,8 @@ export const register: Register = on => {
           {b.alert ? <Text color={TONE.bad} wrap="truncate">⚠ {b.alert}</Text> : null}
           <Box flexDirection="row" flexWrap="nowrap" overflow="hidden" alignItems="center" columnGap={1}>
             {b.avatar ? (
-              <Box key="tk" paddingX={1} hover={{ scope: 'tokkie-about', backgroundColor: HL }}>
-                <Svg source={b.avatar} alt="Tokkie" width={14} height={14} />
+              <Box key="tk" paddingRight={1} hover={{ scope: 'tokkie-about', backgroundColor: HL }}>
+                <Svg source={b.avatar} alt="Tokkie" width={22} height={22} />
               </Box>
             ) : null}
             {b.items.map((it, i) => {

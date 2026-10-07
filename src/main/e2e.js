@@ -62,7 +62,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       ok('pet does not jump when panel opens', near(petPos(), p0), JSON.stringify([p0, petPos()]));
       const b1 = win.getBounds(); ok('window grew to fit panel', b1.height > b0.height + 300 && b1.y >= wa.y && b1.y + b1.height <= wa.y + wa.height);
 
-      for (const tab of ['plan', 'pets', 'settings', 'usage']) {
+      for (const tab of ['plan', 'history', 'pets', 'settings', 'usage']) {
         await js(`document.getElementById('tab-${tab}').click()`); await wait(250); st = await state();
         ok(`tab ${tab} shows only its view`, st.tab === tab && st.visibleViews.join() === `view-${tab}`);
       }
@@ -211,6 +211,17 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
         ok('clicking a run shows its full prompt and the actions', ex.open === 'true' && ex.full.length > 2 && ex.full !== 'Loading…' && ex.btns.includes('Copy prompt'), JSON.stringify(ex).slice(0, 300));
         await wait(1300);
         ok('an opened run stays open while the panel refreshes', (await js(`document.querySelector('#view-plan .runlist .run').getAttribute('aria-expanded')`)) === 'true');
+      }
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(400);
+      await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(600);
+      await js(`document.getElementById('tab-history').click()`); await wait(1500);
+      const hist = await js(`(()=>{const v=document.getElementById('view-history');return {summary:v.querySelector('p.muted')?.textContent||'',days:[...v.querySelectorAll('.dayhead')].map(d=>d.textContent).slice(0,3),firstOpen:v.querySelector('.dayhead')?.getAttribute('aria-expanded'),runs:v.querySelectorAll('.runlist .run').length}})()`);
+      ok('History tab lists runs by day with totals, latest day open', /runs over/.test(hist.summary) && hist.days.length >= 1 && hist.firstOpen === 'true' && hist.runs > 0 || /No runs yet/.test(hist.summary), JSON.stringify(hist).slice(0, 300));
+      if (hist.runs) {
+        await js(`(()=>{const i=document.querySelector('#view-history input');i.value='zzqqxx-no-such-prompt';i.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(300);
+        const none = await js(`document.querySelectorAll('#view-history .runlist .run').length`);
+        ok('History search filters prompts', none === 0, String(none));
+        await js(`(()=>{const i=document.querySelector('#view-history input');i.value='';i.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(300);
       }
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(400);
       ok('no renderer console errors', errors.length === 0, errors.slice(0, 3).join(' | '));

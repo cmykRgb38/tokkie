@@ -17,6 +17,7 @@ const { headline } = require('./parser');
 const { SpendLedger } = require('./spend');
 const { BridgeReader } = require('./bridge');
 const { paceOf } = require('./pace');
+const { RunLog } = require('./runs');
 
 /**
  * Everything the UI needs, with no Electron dependency (so it is testable and reusable).
@@ -54,7 +55,7 @@ async function findLine(file, needle) {
 const startOfDay = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
 class Engine extends EventEmitter {
-  constructor({ settings, now = Date.now, roots, env = process.env, home = os.homedir(), desktopDirs } = {}) {
+  constructor({ settings, now = Date.now, roots, env = process.env, home = os.homedir(), desktopDirs, runsFile } = {}) {
     super();
     this.desktopDirs = desktopDirs;      // where the Claude desktop app keeps its data (tests override this)
     this.settings = settings; this.now = now; this.env = env; this.home = home;
@@ -62,6 +63,7 @@ class Engine extends EventEmitter {
     this.limitsFile = path.join(tokkieHome(env, home), 'rate_limits.json');
     this.bridge = new BridgeReader(path.join(tokkieHome(env, home), 'bridge'));
     this.ledger = new SpendLedger(settings, now);
+    this.runLog = new RunLog(runsFile || path.join(path.dirname(settings.file || path.join(os.tmpdir(), 'tokkie', 'x')), 'runs.json'), now);
     this.limitsMtime = 0; this.limits = null;
     this.desktopMtime = -1; this.desktop = null; this.desktopK = {}; this.calibAt = 0; this.pending = [];   // pending = recent estimates, matched to the run they predicted
     this.loaded = false;
@@ -70,7 +72,10 @@ class Engine extends EventEmitter {
   }
 
   async start() {
-    for (const s of this.settings.get('samples') || []) this.store.addSample(s);
+    // run history: its own file now; older versions kept the last 300 in settings (moved over once)
+    const legacy = this.settings.get('samples') || [];
+    for (const s of [...this.runLog.load(), ...legacy]) this.store.addSample(s);
+    if (legacy.length) this.settings.set({ samples: [] });
     this.store.onSample = null;
     // Feeding starts the first time Tokkie runs; older messages are never counted.
     const ev0 = this.settings.get('evolution');
@@ -94,7 +99,7 @@ class Engine extends EventEmitter {
     this.tick.unref?.();
     this.emit('change');
   }
-  stop() { this.tailer.stop(); clearInterval(this.tick); this.ledger.flush(); this.settings.save(); }
+  stop() { this.tailer.stop(); clearInterval(this.tick); this.ledger.flush(); this.runLog.save(this.store.samples); this.settings.save(); }
 
   _onLive(evs) {
     for (const e of evs) this.store.ingest(e);
@@ -151,7 +156,7 @@ class Engine extends EventEmitter {
     return perUsd ? limit * perUsd : null;
   }
 
-  _persistSamples() { this.settings.set({ samples: this.store.samples.slice(-300) }); }
+  _persistSamples() { this.runLog.saveSoon(this.store.samples); }
 
   _readLimits() {
     try {
@@ -219,7 +224,12 @@ class Engine extends EventEmitter {
   /** Newest finished runs with their actual cost, and how the estimate (if one was made) held up. */
   recentRuns(n = 8, turns = []) {
     // A run's exact cost: the bridge's per-prompt cost from the same session, recorded as that run finished.
-    const usdFor = (s) => { const end = s.start + s.duration * 1000; const t = turns.find((x) => x.sessionId === s.sessionId && Math.abs(x.at - end) < 30e3); return t ? t.usd : null; };
+    const usdFor = (s) => {
+      if (Number.isFinite(s.usd)) return s.usd;
+      const end = s.start + s.duration * 1000, t = turns.find((x) => x.sessionId === s.sessionId && Math.abs(x.at - end) < 30e3);
+      if (t) { s.usd = t.usd; this._persistSamples(); }        // remember it: the bridge's own files only last 14 days
+      return t ? t.usd : null;
+    };
     return this.store.samples.slice(-n).reverse().map((s) => ({ start: s.start, chars: s.chars, duration: s.duration, headline: s.headline || 0, tokens: s.tokens, est: s.est || null, usd: usdFor(s),
       sessionId: s.sessionId, preview: s.preview || '', find: s.find || '', cwd: s.cwd || '', source: s.source || '', uuid: s.uuid || '', hasText: !!(s.file && s.uuid) }));
   }
@@ -320,6 +330,29 @@ class Engine extends EventEmitter {
       const full = textOf(d.message && d.message.content).trim();
       return { text: full.slice(0, SHOW_MAX), total: full.length, full: full.slice(0, COPY_MAX) };
     } catch { return null; }
+  }
+
+  /**
+   * Every remembered run, grouped by local day, newest first, with each day's totals. The $ per day is the exact
+   * Claude Code spend the bridge saw that day (when connected), not only the runs it could match.
+   */
+  history(now = this.now()) {
+    const turns = this.bridge.allTurns();
+    const runs = this.recentRuns(this.store.samples.length, turns);
+    const days = new Map();
+    for (const r of runs) {
+      const d = new Date(r.start); d.setHours(0, 0, 0, 0);
+      const k = d.getTime();
+      if (!days.has(k)) days.set(k, { day: k, runs: [], tokens: 0, seconds: 0, runUsd: 0 });
+      const g = days.get(k);
+      g.runs.push(r); g.tokens += r.headline || 0; g.seconds += r.duration || 0; if (Number.isFinite(r.usd)) g.runUsd += r.usd;
+    }
+    const out = [...days.values()].sort((a, b) => b.day - a.day);
+    for (const g of out) {
+      const spent = this.ledger.between(g.day, g.day + 86400e3);
+      g.usd = spent > 0 ? spent : g.runUsd > 0 ? g.runUsd : null;
+    }
+    return { now, days: out, keptDays: 90 };
   }
 
   /** The planner: tokens, duration range, share of the limit, and the go/no-go verdict. */

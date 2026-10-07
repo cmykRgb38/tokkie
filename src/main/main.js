@@ -207,7 +207,7 @@ function setupIpc() {
     if ('dockPlace' in clean && !['below', 'above', 'claude'].includes(clean.dockPlace)) delete clean.dockPlace;
     if ('hotkey' in clean && (typeof clean.hotkey !== 'string' || clean.hotkey.length > 60)) delete clean.hotkey;
     if ('monsters' in clean && (!clean.monsters || typeof clean.monsters !== 'object')) delete clean.monsters;
-    if ('window' in clean) { const w = clean.window || {}; clean.window = {}; for (const k of ['x', 'y']) if (Number.isFinite(w[k])) clean.window[k] = Math.round(w[k]); if (typeof w.expanded === 'boolean') clean.window.expanded = w.expanded; if (['usage', 'plan', 'pets', 'settings'].includes(w.tab)) clean.window.tab = w.tab; }
+    if ('window' in clean) { const w = clean.window || {}; clean.window = {}; for (const k of ['x', 'y']) if (Number.isFinite(w[k])) clean.window[k] = Math.round(w[k]); if (typeof w.expanded === 'boolean') clean.window.expanded = w.expanded; if (['usage', 'plan', 'history', 'pets', 'settings'].includes(w.tab)) clean.window.tab = w.tab; }
     if ('hotkey' in clean) {
       const prev = settings.get('hotkey');
       if (!registerHotkey(clean.hotkey)) { registerHotkey(prev); delete clean.hotkey; out.ok = false; out.error = 'That shortcut is taken or invalid.'; }
@@ -290,6 +290,7 @@ function setupIpc() {
     if (!UUID.test(String(id))) return { ok: false };
     try { await shell.openExternal(`claude://resume?session=${id}`); return { ok: true }; } catch { return { ok: false }; }
   });
+  ipcMain.handle('runs:history', () => engine.history());
   ipcMain.handle('run:prompt', (_e, sid, uuid) => engine.promptText(String(sid), String(uuid)));
   ipcMain.handle('ui:copyText', async (_e, t) => { const v = String(t).slice(0, 1_000_000); try { await clipboard.writeText(v); lastClipboard = v; return { ok: true }; } catch { return { ok: false }; } });
   ipcMain.on('ui:openExternal', (_e, url) => { if (/^https:\/\/[^\s]+$/.test(String(url))) shell.openExternal(url); });
