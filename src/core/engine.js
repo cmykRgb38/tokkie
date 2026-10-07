@@ -192,7 +192,7 @@ class Engine extends EventEmitter {
     // A run's exact cost: the bridge's per-prompt cost from the same session, recorded as that run finished.
     const usdFor = (s) => { const end = s.start + s.duration * 1000; const t = turns.find((x) => x.sessionId === s.sessionId && Math.abs(x.at - end) < 30e3); return t ? t.usd : null; };
     return this.store.samples.slice(-n).reverse().map((s) => ({ start: s.start, chars: s.chars, duration: s.duration, headline: s.headline || 0, tokens: s.tokens, est: s.est || null, usd: usdFor(s),
-      sessionId: s.sessionId, preview: s.preview || '', cwd: s.cwd || '', source: s.source || '' }));
+      sessionId: s.sessionId, preview: s.preview || '', find: s.find || '', cwd: s.cwd || '', source: s.source || '' }));
   }
 
   snapshot(now = this.now()) {

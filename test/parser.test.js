@@ -39,3 +39,10 @@ test('token weighting discounts cache reads', () => {
   const e = { input: 10, output: 100, cacheWrite: 1000, cacheRead: 10000 };
   assert.equal(headline(e), 1110); assert.equal(weighted(e), 2110);
 });
+
+test('prompt events carry a one-line search text for finding the prompt again', () => {
+  const { parseLine } = require('../src/core/parser');
+  const { U } = require('./helpers');
+  const p = parseLine(U(1e12, '\n  Refactor the billing module\nand add tests'));
+  assert.equal(p.find, 'Refactor the billing module');
+});

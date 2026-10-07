@@ -138,10 +138,19 @@ export function planView(root, api) {
       const canOpen = r.source !== 'cowork' && /^[0-9a-f-]{36}$/i.test(r.sessionId || '');
       const resumeCmd = canOpen ? `${r.cwd ? `cd "${r.cwd}" && ` : ''}claude --resume ${r.sessionId}` : '';
       const actions = canOpen ? el('div', { class: 'ractions' },
-        el('button', { class: 'btn sm', type: 'button', text: 'Open in Claude', title: 'Opens this conversation in the Claude desktop app', onclick: async (e) => { e.stopPropagation(); const res = await api.openSession(r.sessionId); if (!res || !res.ok) note('Couldn’t open Claude — is the desktop app installed?'); } }),
+        el('button', { class: 'btn sm', type: 'button', text: 'Open in Claude', title: 'Opens this conversation in the Claude desktop app, with the prompt copied so you can find it', onclick: async (e) => {
+          e.stopPropagation();
+          // Claude can only open the conversation, not a message in it: copy the prompt's first line so ⌘F ⌘V finds it.
+          const find = r.find || (r.preview || '').slice(0, 60);
+          if (find) await api.copyText(find);
+          const res = await api.openSession(r.sessionId);
+          const mac = api.platform() === 'darwin';
+          if (!res || !res.ok) note('Couldn’t open Claude — is the desktop app installed?');
+          else if (find) note(`Opened. To jump to this prompt press ${mac ? '⌘F' : 'Ctrl+F'} then ${mac ? '⌘V' : 'Ctrl+V'} in Claude.`, 9000);
+        } }),
         el('button', { class: 'btn sm quiet', type: 'button', text: 'Copy terminal command', title: resumeCmd, onclick: async (e) => { e.stopPropagation(); await api.copyText(resumeCmd); note('Copied — paste it in a terminal to continue this conversation.'); } })) : null;
       const msg = el('div', { class: 'muted', hidden: true, style: 'color:var(--good)' });
-      const note = (t) => { msg.textContent = t; msg.hidden = false; setTimeout(() => { msg.hidden = true; }, 4000); };
+      const note = (t, ms = 4000) => { msg.textContent = t; msg.hidden = false; setTimeout(() => { msg.hidden = true; }, ms); };
       return el('div', { class: 'run' + (canOpen ? ' openable' : ''), title: canOpen ? 'Click to open this conversation in Claude' : '', onclick: canOpen ? () => actions.querySelector('button').click() : null },
         el('div', { class: 'row' }, el('span', { class: 'muted', text: `${fmtDur((s.now - r.start) / 1000)} ago${where ? ` · ${where}` : ''}` }), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
         r.preview ? el('div', { class: 'rprompt', text: `“${r.preview}${r.chars > 140 ? '…' : ''}”` }) : null,

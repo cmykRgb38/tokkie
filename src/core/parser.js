@@ -55,7 +55,8 @@ function parseLine(line) {
     if (!text && !hasImage) return null;
     // a one-line preview (local only) so a run can be recognised later, and where it ran (to reopen it)
     const preview = text.replace(/\s+/g, ' ').slice(0, 140) || (hasImage ? '[image]' : '');
-    return { kind: 'prompt', ts, sessionId, chars: text.length, hint: complexityHint(text), uuid: d.uuid || '', preview, cwd: typeof d.cwd === 'string' ? d.cwd : '' };
+    const find = (text.split('\n').find((l) => l.trim()) || '').trim().slice(0, 60);   // what to search for in the chat (one line)
+    return { kind: 'prompt', ts, sessionId, chars: text.length, hint: complexityHint(text), uuid: d.uuid || '', preview, find, cwd: typeof d.cwd === 'string' ? d.cwd : '' };
   }
   return null;
 }

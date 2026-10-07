@@ -31,7 +31,7 @@ class Store {
     if (this.sampleKeys.has(key)) {
       // a run saved by an older version, seen again in the logs: fill in what it didn't record (prompt preview, folder)
       const old = this.samples.find((x) => x.sessionId === s.sessionId && x.start === s.start);
-      if (old) for (const f of ['preview', 'cwd', 'source']) if (!old[f] && s[f]) old[f] = s[f];
+      if (old) for (const f of ['preview', 'find', 'cwd', 'source']) if (!old[f] && s[f]) old[f] = s[f];
       return false;
     }
     this.sampleKeys.add(key);
@@ -49,7 +49,7 @@ class Store {
     const turn = this.sessions.get(ev.sessionId);
 
     if (ev.kind === 'prompt') {
-      this.sessions.set(ev.sessionId, { start: ev.ts, chars: ev.chars, hint: ev.hint || 1, lastTs: ev.ts, tokens: 0, output: 0, prev: this.lastDur.get(ev.sessionId) || 0, preview: ev.preview || '', cwd: ev.cwd || '', source: ev.source || '' });
+      this.sessions.set(ev.sessionId, { start: ev.ts, chars: ev.chars, hint: ev.hint || 1, lastTs: ev.ts, tokens: 0, output: 0, prev: this.lastDur.get(ev.sessionId) || 0, preview: ev.preview || '', find: ev.find || '', cwd: ev.cwd || '', source: ev.source || '' });
     } else if (ev.kind === 'interrupt') {
       this.sessions.delete(ev.sessionId);
     } else if (ev.kind === 'usage') {
@@ -81,7 +81,7 @@ class Store {
     for (const m of (turn.msgs || new Map()).values()) { tokens += m.w; output += m.out; head += m.h; }
     this.lastDur.set(sessionId, ms / 1000);
     if (endTs >= this.recent.end) this.recent = { dur: ms / 1000, end: endTs };
-    const sample = { sessionId, start: turn.start, chars: turn.chars, hint: turn.hint, prev: turn.prev, duration: ms / 1000, tokens, headline: head, output, preview: turn.preview || '', cwd: turn.cwd || '', source: turn.source || '' };
+    const sample = { sessionId, start: turn.start, chars: turn.chars, hint: turn.hint, prev: turn.prev, duration: ms / 1000, tokens, headline: head, output, preview: turn.preview || '', find: turn.find || '', cwd: turn.cwd || '', source: turn.source || '' };
     if (this.addSample(sample) && this.onSample) this.onSample(sample);
   }
 
