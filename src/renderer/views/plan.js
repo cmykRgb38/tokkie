@@ -86,12 +86,23 @@ export function planView(root, api) {
     const conf = r.confidence === 'low' ? `Still learning your pace (${r.n} run${r.n === 1 ? '' : 's'} so far). Treat this as a rough guess.`
       : r.confidence === 'medium' ? `Based on your last ${r.n} runs.` : `Based on your last ${Math.min(r.n, 300)} runs. Big agentic tasks still vary a lot.`;
     paintMeta();
+    // Will it fit in what's left of your limit? (the tightest limit we can measure)
+    const f = r.fit, pct = (x) => (x < 1 ? '<1' : String(Math.round(x)));
+    const need = f ? (f.usd ? `$${f.usd.p50.toFixed(2)}–${f.usd.p75.toFixed(2)}` : `${pct(f.need.p50)}–${pct(f.need.p75)}%`) : '';
+    const left = f ? (f.usd ? `$${f.usd.left.toFixed(2)}` : `${pct(f.left)}%`) : '';
+    const fitBox = f && f.status !== 'ok'
+      ? el('div', { class: 'verdict', 'data-k': f.status === 'no' ? 'bad' : 'warn', role: 'alert' }, el('span', { class: 'dot', 'data-k': f.status === 'no' ? 'bad' : 'warn' }),
+        el('h3', { text: f.status === 'no' ? 'Not enough left for this prompt' : 'This prompt may not fit' }),
+        el('p', { text: f.left <= 0.05 ? `Your ${f.label} is used up.` : `It needs about ${need} and only ${left} of your ${f.label} is left${f.status === 'no' ? ' — it will likely stop partway.' : ' — a heavy run could hit the limit.'} Split it into a smaller first step${f.id === 'five' ? ' or wait for the 5-hour reset' : ''}.` }))
+      : null;
     out.replaceChildren(
+      ...(fitBox ? [fitBox] : []),
       el('div', { class: 'verdict', 'data-k': k }, el('span', { class: 'dot', 'data-k': k }), el('h3', { text: title }), el('p', { text: msg }), tl),
       el('div', { class: 'kv' },
         el('div', { class: 'row' }, el('span', { text: 'Run time' }), el('span', { text: fmtRange(d.p25, d.p75) })),
         el('div', { class: 'row' }, el('span', { text: 'Tokens it will use' }), el('span', { text: `≈ ${fmtTokens(r.headline.p25)}–${fmtTokens(r.headline.p75)}` })),
-        el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: share ? `≈ ${shareTxt}` : 'connect limits for %', style: share ? '' : 'font-weight:500;color:var(--ink-3)' }))),
+        f ? el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: `≈ ${need} · ${left} left`, title: `${f.label}: this prompt’s likely share vs what’s left`, style: f.status === 'no' ? 'color:var(--bad)' : f.status === 'risky' ? 'color:var(--warn)' : '' }))
+          : el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: share ? `≈ ${shareTxt}` : 'connect limits for %', style: share ? '' : 'font-weight:500;color:var(--ink-3)' }))),
       el('p', { class: 'muted', text: conf }));
   }
 

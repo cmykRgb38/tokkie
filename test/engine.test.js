@@ -87,3 +87,17 @@ test('dollar mode: with a spend limit and the bridge running since the reading, 
   assert.equal(s.context.tokens, 120000); assert.equal(s.lastPrompt.usd, 1.5);
   eng.stop(); fs.rmSync(dir, { recursive: true });
 });
+
+test('fit check: says when a prompt will not fit in what is left of a limit', async () => {
+  const { dir, eng, settings } = rig();
+  settings.set({ calib: { five: { k: 1_000_000 }, seven: {} } });            // 1M weighted tokens = 100% of the 5-hour window
+  const meters = [{ id: 'five', label: '5-hour limit', pct: 95 }];
+  assert.equal(eng._fit({ p50: 80_000, p75: 120_000 }, meters).status, 'no');      // needs 8–12%, 5% left
+  assert.equal(eng._fit({ p50: 30_000, p75: 60_000 }, meters).status, 'risky');    // 3–6%
+  assert.equal(eng._fit({ p50: 10_000, p75: 20_000 }, meters).status, 'ok');
+  assert.equal(eng._fit({ p50: 1, p75: 1 }, [{ id: 'five', label: '5-hour limit', pct: 100 }]).status, 'no');   // used up
+  const d = eng._fit({ p50: 80_000, p75: 120_000 }, [{ id: 'five', label: 'x', pct: 95, limitUsd: 200 }]);
+  assert.ok(Math.abs(d.usd.left - 10) < 1e-9 && Math.abs(d.usd.p50 - 16) < 1e-9);
+  assert.equal(eng._fit({ p50: 1, p75: 1 }, [{ id: 'seven', label: 'w', pct: 50 }]), null);       // can't convert → no claim
+  fs.rmSync(dir, { recursive: true });
+});

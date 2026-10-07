@@ -1,8 +1,11 @@
 {
   "name": "tokkie-bridge",
   "displayName": "Tokkie bridge",
-  "version": "1.0.0",
-  "description": "Lets the Tokkie desktop pet see the exact figures Claude Code already has: session cost, each prompt's cost, plan limits, context and running agents. Read-only; writes one small file per session under ~/.tokkie/bridge.",
-  "author": { "name": "Tokkie" },
-  "license": "MIT"
+  "version": "1.1.0",
+  "description": "Lets the Tokkie desktop pet see the exact figures Claude Code already has (session cost, each prompt's cost, plan limits, context, running agents) and, if you choose it in Tokkie, shows Tokkie's Dock as a bar above the prompt. Writes small files under ~/.tokkie; no network.",
+  "author": {
+    "name": "Tokkie"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
 }

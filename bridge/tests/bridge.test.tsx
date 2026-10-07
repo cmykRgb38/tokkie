@@ -43,3 +43,30 @@ test('writes plan limits in the format Tokkie reads, when the account has them',
   expect(lim.seven_day.used_percentage).toBe(61)
   expect(lim.five_hour.updated_at).toBe(1_800_000_000)
 })
+
+test('draws Tokkie’s Dock above the prompt when Tokkie asks for it, and nothing otherwise', async ($, on) => {
+  mock.clock(on, { now: 1_900_000_000_000 })
+  const files = fakeHost(on, { cost: 1, limits: [] })
+  const BAND = '/private/tmp/tokkie-bridge-test/.tokkie/band.json'
+  files[BAND] = JSON.stringify({ updatedAt: 1_900_000_000_000 - 1000, show: true, alert: 'Not enough left for this prompt', items: [{ label: 'Usage', value: '54% · $107/200', tone: 'warn' }, { label: 'Cache', value: '42m left' }] })
+  await $.session.start({ source: 'startup', cwd: '/work' } as never)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'tokkie-bridge', surface, component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
+    expect(await ui.find({ type: 'Text', text: /54% · \$107\/200/ } as never)).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Not enough left/ } as never)).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /no such text/ } as never)).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+test('no bar when Tokkie is closed (stale file) or the bar is switched off', async ($, on) => {
+  mock.clock(on, { now: 1_900_000_000_000 })
+  const files = fakeHost(on, { cost: 1, limits: [] })
+  const BAND = '/private/tmp/tokkie-bridge-test/.tokkie/band.json'
+  on('ui.render', ($: any, e: any) => { const { Box } = $.ui.resolve(e); return <Box key="engine" /> })   // the engine's own (empty) band
+  files[BAND] = JSON.stringify({ updatedAt: 1_900_000_000_000 - 10 * 60e3, show: true, items: [{ label: 'Usage', value: '54%' }] })
+  await $.session.start({ source: 'startup', cwd: '/work' } as never)
+  const ui = await $.ui.mount({ plugin: 'tokkie-bridge', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
+  expect(await ui.find({ type: 'Text', text: /54%/ } as never)).toBeUndefined()
+  await ui.unmount()
+})

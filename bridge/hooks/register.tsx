@@ -1,11 +1,17 @@
+import { atom, read, update } from 'claude-code'
 import type { Engine, Register, SessionRateLimit } from 'claude-code'
+
+import type { Band, BandItem } from '../types'
 
 // Tokkie bridge — the desktop pet's eyes inside Claude Code.
 // It only READS what Claude Code already measures ($.session.usage) and writes it to one file per
 // session under ~/.tokkie/bridge/, plus plan limits (when the account has them) to ~/.tokkie/rate_limits.json.
+// When you pick "Dock: in Claude Code" in Tokkie, it also draws Tokkie's Dock as a bar above the prompt (from ~/.tokkie/band.json).
 // No network, no prompts changed, no programs run.
 
 const MAX_TURNS = 30
+const BAND_STALE_MS = 2 * 60e3      // Tokkie rewrites band.json every few seconds; older means Tokkie is closed
+const band = atom({ plugin: 'tokkie-bridge', key: 'band' } as const, null as Band)
 
 // What each finished prompt cost, newest last: { at, usd }. The module's own memory: a reload starts it over.
 let turns: { at: number; usd: number }[] = []
@@ -76,9 +82,29 @@ async function recordTurn($: Engine) {
   costBase = cost
 }
 
+/** Pick up what Tokkie wants shown above the prompt. Nothing (or a stale file) means no bar. */
+async function refreshBand($: Engine) {
+  let next: Band = null
+  try {
+    const dir = await tokkieHome($)
+    const j = JSON.parse(await $.fs.read(`${dir}/band.json`) as string)
+    const fresh = Number.isFinite(j.updatedAt) && (await $.clock.now()) - j.updatedAt < BAND_STALE_MS
+    if (fresh && j.show === true && Array.isArray(j.items)) {
+      const items: BandItem[] = j.items.slice(0, 10).filter((x: any) => x && typeof x.label === 'string' && typeof x.value === 'string')
+        .map((x: any) => ({ label: x.label.slice(0, 24), value: x.value.slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '' }))
+      next = { items, alert: typeof j.alert === 'string' && j.alert ? j.alert.slice(0, 120) : undefined }
+    }
+  } catch { /* no file: Tokkie isn't showing a bar */ }
+  const prev = await read($, band)
+  if (JSON.stringify(prev) !== JSON.stringify(next)) await update($, band, () => next)
+}
+
+const TONE: Record<string, string> = { good: 'green', warn: 'yellow', bad: 'red' }
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
+    try { await refreshBand($); $.clock.every(3000, () => refreshBand($).catch(() => {})) } catch { /* ignore */ }
     try {
       const usage = await $.session.usage()
       costBase = usage.cost?.usd ?? null
@@ -105,5 +131,26 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     try { await save($, 'end') } catch { /* ignore */ }
     return next(e)
+  })
+
+  // Tokkie's Dock, as a one-line bar above the prompt (only when chosen in Tokkie → Settings → Dock position).
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const b = await read($, band)
+    if (e.props.hasSurvey || !b || !b.items.length) return next(e)
+    const { Box, Text } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        {b.alert ? <Text color="red" bold wrap="truncate">⚠ {b.alert}</Text> : null}
+        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
+          <Text bold>Tokkie</Text>
+          {b.items.map((it, i) => (
+            <Text key={String(i)} wrap="truncate">
+              <Text dimColor>{it.label} </Text>
+              <Text bold color={it.tone ? TONE[it.tone] : undefined}>{it.value}</Text>
+            </Text>
+          ))}
+        </Box>
+      </Box>
+    )
   })
 }

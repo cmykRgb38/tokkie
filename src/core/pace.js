@@ -9,12 +9,14 @@ const SPAN = { five: 5 * H, seven: 7 * 24 * H };
 
 /** Monthly period that resets at 00:00 UTC on `day` (Claude shows e.g. "Resets Sun, Nov 1, 8:00 AM GMT+8"). */
 function monthlyPeriod(day, now) {
-  const d = Math.max(1, Math.min(28, Math.round(day) || 1));
+  const d = Math.max(1, Math.min(31, Math.round(day) || 1));
+  // day 29–31 in a shorter month resets on that month's last day
+  const at = (y, m) => { const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); return Date.UTC(y, m, Math.min(d, last)); };
   const t = new Date(now);
-  let end = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), d);
-  if (end <= now) end = Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, d);
-  const e = new Date(end);
-  const start = Date.UTC(e.getUTCFullYear(), e.getUTCMonth() - 1, d);
+  let y = t.getUTCFullYear(), m = t.getUTCMonth();
+  let end = at(y, m);
+  if (end <= now) { m += 1; end = at(y, m); }
+  const start = at(y, m - 1);
   return { start, end };
 }
 

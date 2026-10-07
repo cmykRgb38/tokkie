@@ -133,6 +133,9 @@ function copyTree(src, dst) {
     if (ent.isDirectory()) copyTree(a, b);
     else { const data = fs.readFileSync(a); let same = false; try { same = fs.readFileSync(b).equals(data); } catch { /* new */ } if (!same) fs.writeFileSync(b, data); }
   }
+  // drop files an older version shipped (e.g. register.ts → register.tsx)
+  const keep = new Set(fs.readdirSync(src).filter((n) => n !== 'tests' && n !== 'node_modules'));
+  for (const n of fs.readdirSync(dst)) if (!keep.has(n)) fs.rmSync(path.join(dst, n), { recursive: true, force: true });
 }
 
 function bridgeStatus(opts = {}) {
@@ -140,7 +143,7 @@ function bridgeStatus(opts = {}) {
   let s;
   try { s = readJson(file); } catch (e) { return { file, installed: false, error: e.code === 'ENOENT' ? null : 'unparseable' }; }
   const dirs = splitDirs(isPlainObject(s.env) ? s.env[ENV_KEY] : '');
-  return { file, installed: dirs.includes(dir) && fs.existsSync(path.join(dir, 'hooks', 'register.ts')) };
+  return { file, installed: dirs.includes(dir) && fs.existsSync(path.join(dir, 'hooks', 'hooks.json')) };
 }
 
 function installBridge({ bridgeSource, opts = {} }) {

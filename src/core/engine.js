@@ -204,6 +204,9 @@ class Engine extends EventEmitter {
     const ctx = fresh && Number.isFinite(fresh.context.tokens) && (!cache || fresh.sessionId === cache.sessionId)
       ? { tokens: fresh.context.tokens, window: fresh.context.window || null, percent: Number.isFinite(fresh.context.percent) ? fresh.context.percent : null, exact: true }
       : cache ? { tokens: cache.ctxTokens, window: null, percent: null, exact: false } : null;
+    const recent = this.store.samples.slice(-20).map((x) => x.tokens).filter((x) => x > 0).sort((a, b) => a - b);
+    const typical = recent.length >= 3 ? { p50: recent[Math.floor(recent.length / 2)], p75: recent[Math.floor(recent.length * 0.75)] } : null;
+    const nextFit = typical ? this._fit(typical, meters, now) : null;
     const turns = this.bridge.allTurns();
     const lastPrompt = turns.length ? turns[turns.length - 1] : null;
     const eta = active ? predict(this.store.samples, '', active.chars, { prev: active.prev || 0, hint: active.hint }).duration : null;
@@ -214,12 +217,31 @@ class Engine extends EventEmitter {
       spark: t.spark,
       limits: lim, fallback, block: t.block,
       meters, desktopSeen: !!this.desktop, manualCount: (this.settings.get('manualReadings') || []).length, evolution: evolutionFor(this.eaten()),
-      cache, context: ctx, agents: fresh ? fresh.agentsRunning : 0, lastPrompt,
+      nextFit, cache, context: ctx, agents: fresh ? fresh.agentsRunning : 0, lastPrompt,
       bridge: { seen: !!br, live: !!fresh, since: this.ledger.state.bridgeSince || 0, todayUsd: this.ledger.since(startOfDay(now)) },
       runs: this.recentRuns(8, turns), k5: (this.settings.get('calib').five || {}).k || null,
       samples: this.store.samples.length,
       files: this.tailer.files.size,
     };
+  }
+
+  /**
+   * Will a prompt of this size fit in what's left? Checked against every limit we can convert tokens into %
+   * (5-hour, weekly, usage/spend), and the tightest one wins. need = predicted tokens ÷ tokens-per-100%.
+   */
+  _fit(tokens, meters, now) {
+    let worst = null;
+    for (const m of meters || []) {
+      if (!Number.isFinite(m.pct) || m.id === 'budget') continue;
+      const k = m.id === 'five' ? ((this.settings.get('calib').five || {}).k || this.desktopK.five) : this.desktopK[m.id];
+      const left = Math.max(0, 100 - m.pct);
+      if (!k && left > 0) continue;
+      const need = k ? { p50: (tokens.p50 / k) * 100, p75: (tokens.p75 / k) * 100 } : { p50: 0, p75: 0 };
+      const status = left <= 0.05 || need.p50 >= left ? 'no' : need.p75 >= left ? 'risky' : 'ok';
+      const f = { id: m.id, label: m.label, left, need, status, usd: m.limitUsd ? { left: (left / 100) * m.limitUsd, p50: (need.p50 / 100) * m.limitUsd, p75: (need.p75 / 100) * m.limitUsd } : null };
+      if (!worst || f.left - f.need.p75 < worst.left - worst.need.p75) worst = f;
+    }
+    return worst;
   }
 
   _remember(chars, pred, now) {
@@ -243,7 +265,8 @@ class Engine extends EventEmitter {
     this._remember(chars, pred, now);
     const k = (this.settings.get('calib').five || {}).k;
     const share = k ? { lo: (pred.tokens.p25 / k) * 100, mid: (pred.tokens.p50 / k) * 100, hi: (pred.tokens.p75 / k) * 100 } : null;
-    return { chars, promptTokens: estimateTokens(text), duration: pred.duration, tokens: pred.tokens, headline: pred.headline, share, confidence: pred.confidence, n: pred.n, method: pred.method, plan, finishBy, now };
+    const fit = this._fit(pred.tokens, this.snapshot(now).meters, now);
+    return { chars, promptTokens: estimateTokens(text), duration: pred.duration, tokens: pred.tokens, headline: pred.headline, share, fit, confidence: pred.confidence, n: pred.n, method: pred.method, plan, finishBy, now };
   }
 }
 

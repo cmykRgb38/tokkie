@@ -1,1 +1,6 @@
-{ "description": "Tokkie bridge: records Claude Code's own usage figures for the Tokkie desktop pet", "modules": ["./register.ts"] }
+{
+  "description": "Tokkie bridge: records Claude Code's own usage figures for the Tokkie desktop pet",
+  "modules": [
+    "./register.tsx"
+  ]
+}

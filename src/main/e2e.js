@@ -29,6 +29,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       const dk2 = await js(`[...document.querySelectorAll('#dock .dline')].map(l=>l.dataset.k)`);
       ok('a Dock line can be switched off in Settings', !dk2.includes('status') && dk2.length === dk.lines.length - 1, dk2.join());
       await js(`window.tokkie.setSettings({ dock: { status: true } })`);
+      win.setPosition(wa.x + Math.round(wa.width / 2), wa.y + Math.round(wa.height / 3)); await wait(300);   // room above and below
       const pd0 = petPos();
       await js(`window.tokkie.setSettings({ layout: 'pills' })`); await wait(1300);
       const pl = await js(`({pills:!document.getElementById('pills').hidden, dock:!document.getElementById('dock').hidden, text:document.getElementById('pills').textContent})`);
@@ -37,8 +38,22 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       await js(`window.tokkie.setSettings({ layout: 'pet' })`); await wait(1300);
       const pe = await js(`({pills:!document.getElementById('pills').hidden, dock:!document.getElementById('dock').hidden})`);
       ok('Pet-only layout hides both', !pe.pills && !pe.dock, JSON.stringify(pe));
+      await js(`window.tokkie.setSettings({ layout: 'pills', pills: { pace: true, status: true } })`); await wait(1300);
+      const pl2 = await js(`window.tokkie.getState().then((s) => ({ n: document.getElementById('pills').children.length, busy: !!s.active, picks: s.settings.pills }))`);
+      ok('pills follow the items picked for them', pl2.picks.pace && pl2.picks.status && pl2.n >= 3, JSON.stringify(pl2));
+      await js(`window.tokkie.setSettings({ layout: 'dock', dockPlace: 'above' })`); await wait(1300);
+      const ab = await js(`(()=>{const d=document.getElementById('dock').getBoundingClientRect(),c=document.getElementById('pet').getBoundingClientRect();return {dockBottom:d.bottom,petTop:c.top,hidden:document.getElementById('dock').hidden}})()`);
+      ok('Dock above the pet (its empty headroom tucked under the card)', !ab.hidden && ab.petTop >= ab.dockBottom - 27 && ab.petTop < ab.dockBottom + 10, JSON.stringify(ab));
+      ok('pet stays in place when the Dock moves above', near(petPos(), pd0), JSON.stringify([pd0, petPos()]));
+      await js(`window.tokkie.setSettings({ dockPlace: 'claude' })`); await wait(3500);
+      const band = JSON.parse(require('fs').readFileSync(require('path').join(require('../core/paths').tokkieHome(), 'band.json'), 'utf8'));
+      ok('“In Claude Code” hides the Dock here and hands its lines to the bridge', (await js(`document.getElementById('dock').hidden`)) && band.show === true && band.items.length > 0, JSON.stringify(band).slice(0, 160));
+      await js(`window.tokkie.setSettings({ dockPlace: 'below' })`); await wait(1300);
+      const band2 = JSON.parse(require('fs').readFileSync(require('path').join(require('../core/paths').tokkieHome(), 'band.json'), 'utf8'));
+      ok('switching back turns the Claude Code bar off', band2.show === false);
       await js(`window.tokkie.setSettings({ layout: 'dock' })`); await wait(1300);
       ok('back to the Dock, pet still in place', near(petPos(), pd0) && !(await js(`document.getElementById('dock').hidden`)), JSON.stringify([pd0, petPos()]));
+      win.setPosition(wa.x + Math.round(wa.width / 2), wa.y + 80); await wait(400);
       ok('window starts visible', win.isVisible());
       const p0 = petPos(), b0 = win.getBounds();
 

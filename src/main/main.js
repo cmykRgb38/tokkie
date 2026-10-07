@@ -32,7 +32,7 @@ const STATE_MS = 1000;
 
 let win = null, tray = null, settings = null, engine = null;
 let petRect = { x: 0, y: 0, w: 0, h: 0 };       // renderer-reported pet position inside the window
-let layoutCache = null, placement = 'below';
+let layoutCache = null, placement = 'below', homePet = null;   // homePet: where the pet sat before the panel opened
 let lastClipboard = '', lastCursor = { x: -1, y: -1 };
 
 process.on('uncaughtException', (e) => console.error('uncaught', e));
@@ -47,11 +47,28 @@ const publicSettings = () => {
 
 let hookCache = { at: 0, v: { installed: false } };
 const hookStatus = () => { if (Date.now() - hookCache.at > 3000) hookCache = { at: Date.now(), v: { installed: !!setup.bridgeStatus().installed, legacy: !!setup.status().installed } }; return hookCache.v; };
-const BRIDGE_SOURCE = path.join(__dirname, '..', '..', 'bridge');
+// Packaged: shipped as a plain folder next to the app (outside the asar, so the plugin's .d.ts contract survives packaging).
+const BRIDGE_SOURCE = app.isPackaged ? path.join(process.resourcesPath, 'bridge') : path.join(__dirname, '..', '..', 'bridge');
 
 function snapshot() {
   const s = engine.snapshot();
   return { ...s, hook: hookStatus(), hotkey: { accelerator: settings.get('hotkey'), ok: hotkeyOk, firedAt: hotkeyFiredAt }, settings: publicSettings(), signature: SIGNATURE, platform: process.platform, version: app.getVersion(), packaged: app.isPackaged };
+}
+
+let bandLast = '', bandAt = 0;
+function writeBand(b) {
+  try {
+    const clean = { show: !!(b && b.show), alert: b && typeof b.alert === 'string' ? b.alert.slice(0, 120) : '',
+      items: (b && Array.isArray(b.items) ? b.items : []).slice(0, 10).map((x) => ({ label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '' })) };
+    const key = JSON.stringify(clean), now = Date.now();
+    if (key === bandLast && now - bandAt < 30e3) return;          // rewrite unchanged content only to keep it fresh
+    if (!clean.show && bandLast && !JSON.parse(bandLast).show && now - bandAt < 300e3) return;
+    bandLast = key; bandAt = now;
+    const dir = require('../core/paths').tokkieHome();
+    fs.mkdirSync(dir, { recursive: true });
+    const f = path.join(dir, 'band.json'), tmp = f + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ updatedAt: now, ...clean })); fs.renameSync(tmp, f);
+  } catch (e) { console.error('band write failed', e.message); }
 }
 
 function send(channel, payload) { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); }
@@ -166,7 +183,7 @@ function setupIpc() {
   ipcMain.handle('settings:set', (_e, patch) => {
     const out = { ok: true };
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, error: 'bad request' };
-    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality'];
+    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills'];
     const clean = {};
     for (const k of allowed) if (Object.prototype.hasOwnProperty.call(patch, k)) clean[k] = patch[k];
     const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'alertBubble', 'speechBubble'];
@@ -181,10 +198,11 @@ function setupIpc() {
       clean.evolution = next;
     }
     if ('spendLimitUsd' in clean) clean.spendLimitUsd = Math.max(0, Math.min(1e6, Math.round((Number(clean.spendLimitUsd) || 0) * 100) / 100));
-    if ('resetDay' in clean) clean.resetDay = Math.max(1, Math.min(28, Math.round(Number(clean.resetDay)) || 1));
+    if ('resetDay' in clean) clean.resetDay = Math.max(1, Math.min(31, Math.round(Number(clean.resetDay)) || 1));
     if ('layout' in clean && !['dock', 'pills', 'pet'].includes(clean.layout)) delete clean.layout;
     if ('personality' in clean && !['cheerful', 'playful', 'sleepy', 'grumpy', 'shy'].includes(clean.personality)) delete clean.personality;
-    if ('dock' in clean) { const d = clean.dock || {}, cur = settings.get('dock'); clean.dock = { ...cur }; for (const k of Object.keys(cur)) if (typeof d[k] === 'boolean') clean.dock[k] = d[k]; }
+    for (const key of ['dock', 'pills']) if (key in clean) { const d = clean[key] || {}, cur = settings.get(key); clean[key] = { ...cur }; for (const k of Object.keys(cur)) if (typeof d[k] === 'boolean') clean[key][k] = d[k]; }
+    if ('dockPlace' in clean && !['below', 'above', 'claude'].includes(clean.dockPlace)) delete clean.dockPlace;
     if ('hotkey' in clean && (typeof clean.hotkey !== 'string' || clean.hotkey.length > 60)) delete clean.hotkey;
     if ('monsters' in clean && (!clean.monsters || typeof clean.monsters !== 'object')) delete clean.monsters;
     if ('window' in clean) { const w = clean.window || {}; clean.window = {}; for (const k of ['x', 'y']) if (Number.isFinite(w[k])) clean.window[k] = Math.round(w[k]); if (typeof w.expanded === 'boolean') clean.window.expanded = w.expanded; if (['usage', 'plan', 'pets', 'settings'].includes(w.tab)) clean.window.tab = w.tab; }
@@ -224,9 +242,17 @@ function setupIpc() {
       return { placement };
     }
     const b = win.getBounds();
-    const oldPetX = b.x + petRect.x, oldPetY = b.y + petRect.y;
+    let oldPetX = b.x + petRect.x, oldPetY = b.y + petRect.y;
+    // A panel that can't fit on a short screen nudges the pet; closing it puts the pet back exactly where it was.
+    if (l.mode === 'expanded' && !homePet) homePet = { x: oldPetX, y: oldPetY };
+    if (l.mode !== 'expanded' && homePet) { oldPetX = homePet.x; oldPetY = homePet.y; homePet = null; }
     const disp = screen.getDisplayMatching(b), wa = disp.workArea;
-    if (l.mode === 'expanded') placement = (oldPetY + (l.below.pet.h / 2)) > wa.y + wa.height / 2 ? 'above' : 'below';
+    if (l.mode === 'expanded') {
+      // open where the whole panel fits without moving the pet; otherwise the side with more room
+      const fitsBelow = oldPetY - l.below.pet.y + l.below.h <= wa.y + wa.height, fitsAbove = oldPetY - l.above.pet.y >= wa.y;
+      const lower = (oldPetY + (l.below.pet.h / 2)) > wa.y + wa.height / 2;
+      placement = fitsBelow && (!lower || !fitsAbove) ? 'below' : fitsAbove ? 'above' : lower ? 'above' : 'below';
+    }
     else placement = 'below';
     const spec = l.mode === 'expanded' ? l[placement] : l.collapsed;
     petRect = spec.pet;
@@ -236,9 +262,11 @@ function setupIpc() {
     return { placement };
   });
   ipcMain.on('ui:petrect', (_e, r) => { petRect = r; });
+  // The Dock as a bar above Claude Code's prompt: the bridge draws whatever we leave in ~/.tokkie/band.json.
+  ipcMain.on('ui:band', (_e, b) => writeBand(b));
 
   let dragStart = null;
-  ipcMain.on('ui:dragStart', () => { if (win) dragStart = win.getPosition(); });
+  ipcMain.on('ui:dragStart', () => { if (win) dragStart = win.getPosition(); homePet = null; });
   ipcMain.on('ui:dragMove', (_e, d) => {
     if (!win || !dragStart || !d || !Number.isFinite(d.dx) || !Number.isFinite(d.dy)) return;
     const b = win.getBounds();   // setBounds (not setPosition) keeps the size fixed on mixed-DPI Windows setups
@@ -309,6 +337,6 @@ else {
     if (process.env.TOKKIE_DEBUG) setTimeout(() => console.log('MEM', JSON.stringify(process.memoryUsage()), JSON.stringify(app.getAppMetrics().map((m) => [m.type, Math.round(m.memory.workingSetSize / 1024)]))), 3000);
   });
 
-  app.on('will-quit', () => { globalShortcut.unregisterAll(); engine?.stop(); });
+  app.on('will-quit', () => { globalShortcut.unregisterAll(); engine?.stop(); bandLast = ''; writeBand({ show: false }); });
   app.on('window-all-closed', (e) => e.preventDefault());
 }

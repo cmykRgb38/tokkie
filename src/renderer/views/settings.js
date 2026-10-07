@@ -26,17 +26,28 @@ export function settingsView(root, api) {
     ['context', 'Context', 'How full the current conversation is.'], ['cache', 'Cache timer', 'Minutes left on the prompt cache — reply before it expires to save tokens.'], ['agents', 'Agents', 'Sub-agents running (needs the bridge).']];
   const dockToggles = DOCK_ITEMS.map(([k, l, d]) => {
     const sw = el('button', { class: 'switch', type: 'button', role: 'switch', 'aria-label': l, 'aria-checked': 'false' });
-    sw.addEventListener('click', () => api.setSettings({ dock: { ...S.settings.dock, [k]: sw.getAttribute('aria-checked') !== 'true' } }));
+    // the same items drive the Dock and the Pills; each layout remembers its own picks
+    sw.addEventListener('click', () => { const key = S.settings.layout === 'pills' ? 'pills' : 'dock'; api.setSettings({ [key]: { ...S.settings[key], [k]: sw.getAttribute('aria-checked') !== 'true' } }); });
     return { k, sw, row: el('div', { class: 'row sub', title: d }, el('div', { class: 't', text: l }), sw) };
   });
-  const dockBox = el('div', { class: 'dockset' }, el('div', { class: 'd', text: 'Lines shown beside your pet' }), ...dockToggles.map((t) => t.row));
+  const place = mkSeg([['below', 'Below'], ['above', 'Above'], ['claude', 'Claude bar']], 'dockPlace');
+  const placeNote = el('div', { class: 'd', style: 'max-width:none;padding:0 0 6px 12px' });
+  const placeRow = el('div', { class: 'row sub' }, el('div', { class: 't', text: 'Position' }), place.node);
+  const itemsTitle = el('div', { class: 'd', text: 'Shown' });
+  const dockBox = el('div', { class: 'dockset' }, placeRow, placeNote, itemsTitle, ...dockToggles.map((t) => t.row));
 
   const spendIn = el('input', { class: 'input', type: 'number', min: 0, step: 10, 'aria-label': 'Monthly spend limit in dollars', placeholder: 'off' });
   spendIn.addEventListener('change', () => api.setSettings({ spendLimitUsd: Number(spendIn.value) || 0 }));
-  const dayIn = el('input', { class: 'input', type: 'number', min: 1, max: 28, step: 1, style: 'width:60px', 'aria-label': 'Day of the month it resets' });
-  dayIn.addEventListener('change', () => api.setSettings({ resetDay: Number(dayIn.value) || 1 }));
+  // A calendar: pick the date Claude shows under “Resets …”; it repeats on that day every month.
+  const dayIn = el('input', { class: 'input', type: 'date', style: 'width:140px', 'aria-label': 'Next reset date' });
+  dayIn.addEventListener('change', () => { const m = /^\d{4}-\d{2}-(\d{2})$/.exec(dayIn.value); if (m) api.setSettings({ resetDay: Number(m[1]) }); });
+  const nextReset = (day, now) => {
+    const at = (y, mo) => new Date(Date.UTC(y, mo, Math.min(day, new Date(Date.UTC(y, mo + 1, 0)).getUTCDate())));
+    const t = new Date(now); let d = at(t.getUTCFullYear(), t.getUTCMonth()); if (d.getTime() <= now) d = at(t.getUTCFullYear(), t.getUTCMonth() + 1);
+    return d.toISOString().slice(0, 10);
+  };
   const spendRow = el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Spend limit ($ / month)' }), el('div', { class: 'd', text: 'If Claude’s Usage page shows a $ limit, enter it to see dollars.' })), spendIn);
-  const dayRow = el('div', { class: 'row sub' }, el('div', {}, el('div', { class: 't', text: 'Resets on day' }), el('div', { class: 'd', text: 'See “Resets …” on Claude’s Usage page.' })), dayIn);
+  const dayRow = el('div', { class: 'row sub' }, el('div', {}, el('div', { class: 't', text: 'Next reset' }), el('div', { class: 'd', text: 'The date under “Resets …” on Claude’s Usage page. Repeats monthly.' })), dayIn);
   const theme = mkSeg([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], 'theme');
   const size = mkSeg([[5, 'S'], [6, 'M'], [8, 'L']], 'scale', Number);
 
@@ -101,10 +112,18 @@ export function settingsView(root, api) {
     update(s) {
       S = s; const st = s.settings;
       theme.set(st.theme); size.set(st.scale); layout.set(st.layout);
-      dockBox.hidden = st.layout !== 'dock';
-      for (const t of dockToggles) t.sw.setAttribute('aria-checked', String(st.dock[t.k] !== false));
+      dockBox.hidden = st.layout === 'pet';
+      placeRow.hidden = st.layout !== 'dock'; place.set(st.dockPlace || 'below');
+      placeNote.hidden = st.layout !== 'dock' || st.dockPlace !== 'claude';
+      placeNote.textContent = s.hook && s.hook.installed
+        ? 'Shown as a bar above Claude Code’s prompt box (desktop Code tab and terminal), starting with your next new session. Tokkie stays on your desktop.'
+        : 'Needs the Claude Code bridge — connect it above. Until then nothing is shown in Claude Code.';
+      placeNote.style.color = s.hook && s.hook.installed ? '' : 'var(--warn)';
+      itemsTitle.textContent = st.layout === 'pills' ? 'Pills shown under your pet' : st.dockPlace === 'claude' ? 'Shown in the bar' : 'Shown in the Dock';
+      const picks = st.layout === 'pills' ? (st.pills || {}) : (st.dock || {});
+      for (const t of dockToggles) t.sw.setAttribute('aria-checked', String(st.layout === 'pills' ? !!picks[t.k] : picks[t.k] !== false));
       if (document.activeElement !== spendIn) spendIn.value = st.spendLimitUsd || '';
-      if (document.activeElement !== dayIn) dayIn.value = st.resetDay || 1;
+      if (document.activeElement !== dayIn) dayIn.value = nextReset(st.resetDay || 1, Date.now());
       dayRow.hidden = !(st.spendLimitUsd > 0);
       if (!recording) hotBtn.textContent = prettyKey(st.hotkey, s.platform);
       const hk = s.hotkey, ok = !hk || hk.ok, fresh = hk && hk.firedAt && Date.now() - hk.firedAt < 15000;

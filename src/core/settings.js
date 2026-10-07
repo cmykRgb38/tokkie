@@ -26,6 +26,8 @@ const DEFAULTS = Object.freeze({
   spend: {},                 // exact Claude Code dollars from the bridge (ledger)
   layout: 'dock',            // dock | pills | pet
   dock: { usage: true, pace: true, status: true, tokens: true, context: true, cache: true, lastPrompt: true, agents: true },
+  dockPlace: 'below',        // below | above the pet, or 'claude' = a bar above Claude Code's prompt (drawn by the bridge)
+  pills: { usage: true, pace: false, status: false, tokens: true, context: false, cache: false, lastPrompt: false, agents: false },
   personality: 'cheerful',   // cheerful | playful | sleepy | grumpy | shy
   evolution: { start: 0, archived: 0, stageSeen: 1, display: 0 },   // growth bookkeeping: when feeding began, tokens already pruned, last form celebrated, form shown (0 = newest)
   onboarded: false,

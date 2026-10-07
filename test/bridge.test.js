@@ -31,7 +31,7 @@ test('bridge install: copies the plugin, adds one plugin dir, keeps other settin
   assert.equal(s.theme, 'dark'); assert.equal(s.env.FOO, '1');
   assert.deepEqual(s.env.CLAUDE_CODE_PLUGIN_DIRS.split(path.delimiter), [other, dir]);
   assert.deepEqual(s.statusLine, { type: 'command', command: 'mine.sh' });
-  for (const f of ['.claude-plugin/plugin.json', 'hooks/hooks.json', 'hooks/register.ts']) assert.ok(fs.existsSync(path.join(dir, f)), f);
+  for (const f of ['.claude-plugin/plugin.json', 'hooks/hooks.json', 'hooks/register.tsx', 'types/index.d.ts']) assert.ok(fs.existsSync(path.join(dir, f)), f);
   assert.ok(!fs.existsSync(path.join(dir, 'tests')), 'tests are not shipped');
   assert.ok(fs.existsSync(file + '.tokkie-backup'));
   assert.equal(setup.bridgeStatus(opts).installed, true);
@@ -103,4 +103,10 @@ test('pace: ahead of the clock, run-out projection, and monthly periods', () => 
   assert.equal(mp2.start, Date.UTC(2026, 8, 15)); assert.equal(mp2.end, Date.UTC(2026, 9, 15));
   assert.ok(paceOf({ id: 'extra', pct: 50 }, 1, now).pace > 0);                      // 50% used, ~20% of October gone
   assert.equal(paceOf({ id: 'seven', pct: 50 }, 1, now), null);                      // no reset time known → no pace
+});
+
+test('monthly reset on day 31 falls on the last day of shorter months', () => {
+  const now = Date.UTC(2026, 1, 10);                       // 10 Feb 2026
+  const p = monthlyPeriod(31, now);
+  assert.equal(p.start, Date.UTC(2026, 0, 31)); assert.equal(p.end, Date.UTC(2026, 1, 28));
 });

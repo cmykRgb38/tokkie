@@ -51,7 +51,7 @@ Tokkie auto-detects Claude Code (`~/.claude`) and Cowork (the Claude desktop app
 | | |
 |---|---|
 | **Click the pet** | Open / close the panel (also `Enter` when focused). Drag it anywhere. |
-| **Dock beside the pet** | Usage % (and `$105/200` if you set a spend limit), pace / run-out date, status, tokens today, last prompt cost, context size, cache timer, running agents. Turn each line on or off in Settings, or switch to the **Pills** or **Pet only** layout. |
+| **Dock** | A card **below or above** the pet — or, with **Claude bar**, a one-line bar above Claude Code’s prompt box (drawn by the bridge), while the pet stays on your desktop. Lines: usage % (and `$X/200`), pace / run-out date, status, tokens today, last prompt cost, context, cache timer, agents — each switchable. **Pills** layout has its own picks. |
 | **Usage tab** | Plan limits, tokens, burn rate, sparkline. |
 | **Estimate tab** | Set "done by" (e.g. `6:30pm`). Paste a prompt, or select it all, **copy** it (⌘C), then press the shortcut from anywhere (default **⌘⌥⇧L / Ctrl+Alt+Shift+L**) — no need to open Tokkie first. |
 | **Pets tab** | Generate, save, switch monsters. Pick a **personality** (Cheerful, Playful, Sleepy, Grumpy, Shy). Tap any unlocked form to show it (e.g. back to Hatchling). Preview emotions. |
@@ -65,7 +65,7 @@ Token counts (today / last 5 hours / burn rate) come from local Claude Code and 
 
 **Optional – the Claude Code bridge (Settings → Claude Code bridge → Connect).** A tiny, read-only Claude Code plugin that ships inside Tokkie. Each Claude Code session (terminal, IDE or the desktop app's Code tab) writes its exact running cost, context size, running agents and — where your plan provides them — 5-hour/weekly limits to `~/.tokkie`. Connect copies it to `~/.tokkie/claude-bridge` and adds that folder to `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json` (backed up first); Disconnect removes it again. It starts reporting from your **next new** Claude Code session.
 
-**Spend limits (Enterprise / usage-based plans).** Type your monthly dollar limit in Settings. Tokkie then shows `$X of $Y`, and once the bridge has been running since Claude's last reading, the Claude Code part of the live % is exact dollars instead of a token estimate (Cowork and Chat are still estimated). Pace compares % used with % of the month gone and projects a run-out date. You get a heads-up bubble at 75% and 90%.
+**Spend limits (Enterprise / usage-based plans).** Type your monthly dollar limit in Settings. Tokkie then shows `$X of $Y`, and once the bridge has been running since Claude's last reading, the Claude Code part of the live % is exact dollars instead of a token estimate (Cowork and Chat are still estimated). Pace compares % used with % of the month gone and projects a run-out date. You get a heads-up bubble at 75% and 90%. **Will it fit?** Every estimate is checked against what's left: a red *Not enough left for this prompt* (or amber *may not fit*) bubble, in the Estimate tab and in the Claude bar. Tokkie also warns once when even a typical prompt of yours no longer fits. Set the reset date with the calendar in Settings.
 
 The Estimate tab keeps a **Recent runs** log: for each prompt, how long it actually took and how many tokens it used — and, if you estimated it first, whether the estimate was on target, close or off.
 

@@ -27,5 +27,6 @@ contextBridge.exposeInMainWorld('tokkie', {
     revealSettings: () => ipcRenderer.send('ui:revealSettings'),
     estimateClipboard: () => ipcRenderer.send('ui:estimateClipboard'),
     ready: () => ipcRenderer.send('ui:ready'),
+    band: (b) => ipcRenderer.send('ui:band', b),
   },
 });
