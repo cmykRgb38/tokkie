@@ -48,14 +48,21 @@ test('draws Tokkie’s Dock above the prompt when Tokkie asks for it, and nothin
   mock.clock(on, { now: 1_900_000_000_000 })
   const files = fakeHost(on, { cost: 1, limits: [] })
   const BAND = '/private/tmp/tokkie-bridge-test/.tokkie/band.json'
-  files[BAND] = JSON.stringify({ updatedAt: 1_900_000_000_000 - 1000, show: true, alert: 'Not enough left for this prompt', items: [{ k: 'usage', label: 'Usage', value: '54% · $107/200', tone: 'warn' }, { k: 'cache', label: 'Cache', value: '42m left' }], avatar: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><rect width="1" height="1" fill="#fff"/></svg>' })
+  files[BAND] = JSON.stringify({ updatedAt: 1_900_000_000_000 - 1000, show: true, alert: 'Not enough left for this prompt', items: [{ k: 'usage', label: 'Usage', value: '≈58% · $116', tone: 'good', tip: '≈58% of your $200 limit used' }, { k: 'pace', label: 'Pace', value: 'out 11 Oct', tone: 'bad' }, { k: 'status', label: 'Status', value: 'Done 1m' }, { k: 'tokens', label: 'Today', value: '1.43M · $7.32' }, { k: 'lastPrompt', label: 'Last prompt', value: '$0.50' }, { k: 'context', label: 'Context', value: '376k', tone: 'bad' }, { k: 'cache', label: 'Cache', value: '59m' }], avatar: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><rect width="1" height="1" fill="#fff"/></svg>' })
   await $.session.start({ source: 'startup', cwd: '/work' } as never)
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: 'tokkie-bridge', surface, component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
-    expect(await ui.find({ type: 'Text', text: /54% · \$107\/200/ } as never)).toBeDefined()
+    if (surface === 'terminal') expect(await ui.find({ type: 'Text', text: /58%/ } as never)).toBeDefined()
+    else expect(JSON.stringify(await ui.drawn()).includes('≈58% · $116')).toBe(true)
     expect(await ui.find({ type: 'Text', text: /Not enough left/ } as never)).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /no such text/ } as never)).toBeUndefined()
-    if (surface === 'desktop') expect(await ui.find({ type: 'Svg' } as never)).toBeDefined()     // icons + the pet avatar
+    if (surface === 'desktop') {
+      const svg: any = await ui.find({ type: 'Svg' } as never)
+      expect(svg).toBeDefined()                                                                  // the bar is one SVG
+      const src = JSON.stringify(await ui.drawn())
+      expect(src.includes('<title>')).toBe(true)                                                 // hover tooltips
+      console.log('BARSVG' + JSON.stringify((await ui.drawn())))
+    }
     else expect(await ui.find({ type: 'Text', text: /◔/ } as never)).toBeDefined()               // glyphs in the terminal
     await ui.unmount()
   }

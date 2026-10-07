@@ -91,7 +91,7 @@ async function refreshBand($: Engine) {
     const fresh = Number.isFinite(j.updatedAt) && (await $.clock.now()) - j.updatedAt < BAND_STALE_MS
     if (fresh && j.show === true && Array.isArray(j.items)) {
       const items: BandItem[] = j.items.slice(0, 10).filter((x: any) => x && typeof x.label === 'string' && typeof x.value === 'string')
-        .map((x: any) => ({ k: typeof x.k === 'string' ? x.k.slice(0, 16) : '', label: x.label.slice(0, 24), value: x.value.slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '' }))
+        .map((x: any) => ({ k: typeof x.k === 'string' ? x.k.slice(0, 16) : '', label: x.label.slice(0, 24), value: x.value.slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: typeof x.tip === 'string' ? x.tip.slice(0, 200) : '' }))
       const avatar = typeof j.avatar === 'string' && j.avatar.startsWith('<svg') && j.avatar.length < 20000 ? j.avatar : undefined
       next = { items, alert: typeof j.alert === 'string' && j.alert ? j.alert.slice(0, 120) : undefined, avatar }
     }
@@ -103,7 +103,6 @@ async function refreshBand($: Engine) {
 // Chip colours (border + value), and a neutral for chips with nothing to flag.
 const TONE: Record<string, string> = { good: '#4fc98a', warn: '#e8b931', bad: '#f06a5f' }
 const NEUTRAL = '#6b6b78'
-const INK = '#b9b9c6'
 
 // 24×24 line icons (desktop / editor / mobile draw them; the terminal gets a glyph instead).
 const ICON_PATHS: Record<string, string> = {
@@ -118,6 +117,47 @@ const ICON_PATHS: Record<string, string> = {
   alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2h0"/>',
 }
 const GLYPH: Record<string, string> = { usage: '◔', pace: '↯', status: '✓', tokens: '▮', lastPrompt: '$', context: '≡', cache: '◷', agents: '⚙', alert: '!' }
+const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+// Rough advance widths of the system UI font at 11.5px, erring wide so text never runs into the next chip.
+function textWidth(t: string): number {
+  let w = 0
+  for (const ch of t) w += /[0-9$]/.test(ch) ? 7 : /[A-Z]/.test(ch) ? 7.6 : /[mw]/.test(ch) ? 9 : /[il.,:'·|]/.test(ch) ? 3.4 : ch === ' ' ? 3.2 : /[≈~]/.test(ch) ? 7.2 : 5.8
+  return Math.ceil(w)
+}
+
+/**
+ * The whole bar as one small SVG: 22 px chips, hover tooltips (<title>) and a hover highlight. Drawn in the
+ * sandboxed frame (isInteractive) so tooltips work; no script, nothing leaves the drawing.
+ */
+function barSvg(b: NonNullable<Band>): { source: string; width: number; height: number; summary: string } {
+  const H = 22, GAP = 6, PADX = 8, IC = 12
+  let x = 0
+  const parts: string[] = []
+  if (b.avatar) {
+    const inner = b.avatar.replace(/^<svg/, `<svg x="0" y="2" width="18" height="18"`)
+    parts.push(`<g><title>Tokkie — your usage pet. Hover a chip to see what it means.</title>${inner}</g>`)
+    x += 18 + GAP
+  }
+  for (const it of b.items) {
+    const color = it.tone ? TONE[it.tone] as string : ''
+    const tw = textWidth(it.value), w = PADX + IC + 5 + tw + PADX
+    const tip = esc(it.tip ? `${it.label}: ${it.tip}` : it.label)
+    parts.push(`<g class="c"><title>${tip}</title>` +
+      `<rect x="${x + 0.5}" y="0.5" width="${w - 1}" height="${H - 1}" rx="7" class="bg" ${color ? `style="stroke:${color};stroke-opacity:.55"` : ''}/>` +
+      `<g transform="translate(${x + PADX} ${(H - IC) / 2}) scale(${IC / 24})" fill="none" stroke="${color || 'currentColor'}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[k(it.k)]}</g>` +
+      `<text x="${x + PADX + IC + 5}" y="${H / 2}" dominant-baseline="central" ${color ? `fill="${color}"` : 'class="ink"'}>${esc(it.value)}</text></g>`)
+    x += w + GAP
+  }
+  const width = Math.max(1, x - GAP)
+  const style = `<style>text{font:500 11.5px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}` +
+    `.bg{fill:rgba(255,255,255,.045);stroke:rgba(255,255,255,.13)}.ink{fill:#d8d8e0}g.c{color:#a9a9b6}g.c:hover .bg{fill:rgba(255,255,255,.1)}` +
+    `@media (prefers-color-scheme: light){.bg{fill:rgba(0,0,0,.035);stroke:rgba(0,0,0,.14)}.ink{fill:#2a2a33}g.c{color:#62626e}g.c:hover .bg{fill:rgba(0,0,0,.07)}}</style>`
+  const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${H}" viewBox="0 0 ${width} ${H}">${style}${parts.join('')}</svg>`
+  return { source, width, height: H, summary: b.items.map(i => `${i.label} ${i.value}`).join(', ') }
+}
+const k = (key: string) => (ICON_PATHS[key] ? key : 'status')
+
 const icon = (k: string, color: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[k] || ICON_PATHS.status}</svg>`
 
@@ -159,30 +199,25 @@ export const register: Register = on => {
     if (e.props.hasSurvey || !b || !b.items.length) return next(e)
     const table = $.ui.resolve(e) as any
     const { Box, Text } = table
-    const Svg = e.surface === 'terminal' ? null : (table.Svg as any)   // the terminal has no Svg: glyphs there instead
-    const chip = (key: string, k: string, value: string, tone: string | undefined, label: string) => {
-      const color = tone ? TONE[tone] : undefined
-      return Svg ? (
-        <Box key={key} flexDirection="row" flexShrink={0} alignItems="center" columnGap={1} borderStyle="round" borderColor={color || NEUTRAL} paddingX={1} paddingY={0}>
-          <Svg source={icon(k, color || INK)} alt={label} width={12} height={12} />
-          <Text color={color} wrap="truncate">{value}</Text>
+    if (e.surface !== 'terminal' && table.Svg) {
+      const Svg = table.Svg as any
+      const bar = barSvg(b)
+      return (
+        <Box flexDirection="column" overflow="hidden">
+          {b.alert ? <Text color={TONE.bad} wrap="truncate">⚠ {b.alert}</Text> : null}
+          <Svg source={bar.source} alt={`Tokkie: ${bar.summary}`} width={bar.width} height={bar.height} isInteractive />
         </Box>
-      ) : (
-        <Text key={key} wrap="truncate"><Text color={color || NEUTRAL}>{GLYPH[k] || '•'} </Text><Text bold color={color}>{value}</Text></Text>
       )
     }
+    // the terminal can't draw SVG: one line of glyph + value
     return (
-      <Box flexDirection="column" rowGap={0}>
-        {b.alert ? (
-          <Box flexDirection="row" alignItems="center" columnGap={1}>
-            {Svg ? <Svg source={icon('alert', TONE.bad as string)} alt="Warning" width={14} height={14} /> : <Text color={TONE.bad}>!</Text>}
-            <Text color={TONE.bad} bold wrap="truncate">{b.alert}</Text>
-          </Box>
-        ) : null}
-        {/* one row, never wrapping: chips that don't fit are clipped at the right edge */}
-        <Box flexDirection="row" flexWrap="nowrap" overflow="hidden" alignItems="center" columnGap={1}>
-          {Svg && b.avatar ? <Svg source={b.avatar} alt="Tokkie" width={16} height={16} /> : <Text bold>Tokkie</Text>}
-          {b.items.map((it, i) => chip(String(i), it.k, it.value, it.tone, it.label))}
+      <Box flexDirection="column">
+        {b.alert ? <Text color={TONE.bad} wrap="truncate">! {b.alert}</Text> : null}
+        <Box flexDirection="row" flexWrap="nowrap" overflow="hidden" columnGap={2}>
+          <Text bold>Tokkie</Text>
+          {b.items.map((it, i) => (
+            <Text key={String(i)} wrap="truncate"><Text color={it.tone ? TONE[it.tone] : NEUTRAL}>{GLYPH[it.k] || '•'} </Text><Text color={it.tone ? TONE[it.tone] : undefined}>{it.value}</Text></Text>
+          ))}
         </Box>
       </Box>
     )

@@ -251,6 +251,22 @@ function checkFit(S) {
   }
   lastNextFit = st;
 }
+// What each chip is, in plain words — shown when you hover it in the Claude bar.
+const BAR_LABEL = { usage: 'Plan usage', pace: 'Pace', status: 'Claude', tokens: 'Today', lastPrompt: 'Last prompt', context: 'Conversation size', cache: 'Prompt cache', agents: 'Sub-agents' };
+function barTip(l) {
+  switch (l.k) {
+    case 'usage': return `${l.value} used. ${l.title.replace(/^[^—]*— ?/, '') || 'From Claude’s own usage readings.'}`.trim();
+    case 'pace': return `${l.value}. ${l.title}`;
+    case 'status': return `${l.value} — what Claude is doing right now.`;
+    case 'tokens': return `${l.value} used today. ${l.title}.`;
+    case 'lastPrompt': return `${l.value} — exact cost of your last Claude Code prompt.`;
+    case 'context': return `${l.value} tokens re-sent with every message. ${l.title}.`;
+    case 'cache': return `${l.value}. ${l.title}.`;
+    case 'agents': return `${l.value} — sub-agents working right now.`;
+    default: return l.title || '';
+  }
+}
+
 /** The Claude bar is one row: shortest wording of each item (the icon says what it is). */
 function barText(l) {
   const v = String(l.value);
@@ -349,7 +365,7 @@ function render() {
   if (lines) renderDock(lines);
   applyLayout();
   const inClaude = !!lines && place === 'claude';
-  bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: l.label, value: barText(l), tone: l.tone })), alert: bandAlert(S), avatar: inClaude ? petAvatar() : '' });
+  bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S), avatar: inClaude ? petAvatar() : '' });
   chip.textContent = d.chipText; chip.dataset.k = d.chipK;
 
   if (mode === 'expanded') { for (const t of TABS) if (t === tab) views[t].update(S); }
