@@ -4,7 +4,7 @@ import { Pet } from '../pet.js';
 const EMOTION_LABELS = [['done', 'Happy'], ['playful', 'Playful'], ['love', 'In love'], ['surprised', 'Surprised'], ['angry', 'Angry'], ['bored', 'Bored'], ['sleep', 'Sleepy']];
 
 const M = window.TokkieMonster;
-const MAX = 5;
+const MAX = 12;                 // saved pets (your first one doesn't count)
 const FORM_NAMES = ['Hatchling', 'Junior', 'Champion', 'Mega'];
 const PERSONALITIES = [['cheerful', 'Cheerful', 'Sunny and affectionate — loves being petted.'], ['playful', 'Playful', 'Can’t sit still: hops, winks and giggles when poked.'],
   ['sleepy', 'Sleepy', 'Yawns a lot and dozes off quickly when you’re idle.'], ['grumpy', 'Grumpy', 'Scowls by default and hates being poked. Secretly soft.'], ['shy', 'Shy', 'Looks away when you hover; takes a while to warm up.']];
@@ -43,7 +43,7 @@ export function petsView(root, api) {
   // Album: every species (body shape × head) and the secret ones — silhouettes until you've met one
   const albumHead = el('div', { class: 'row' }, el('span', { class: 'label', text: 'Album' }), el('span', { class: 'muted' }));
   const albumGrid = el('div', { class: 'album' });
-  const albumNote = el('p', { class: 'muted', text: 'Generate pets to discover species. Secret ones need a code.' });
+  const albumNote = el('p', { class: 'muted', text: 'Generate pets to discover species. Secret ones are 1 in 100 — or need a code.' });
   const bringBack = el('button', { class: 'btn sm quiet', type: 'button', hidden: true });
   root.append(el('div', { class: 'stack' },
     evoCard,
@@ -57,12 +57,24 @@ export function petsView(root, api) {
 
   let S = null;
   const setM = (patch) => api.setSettings({ monsters: { ...S.settings.monsters, ...patch } });
-  reroll.addEventListener('click', () => setM({ active: 'n' + Math.random().toString(36).slice(2, 12) }));
+  // Blind box: 1 in 100 rolls is one of the secret pets (codes still unlock a specific one).
+  const RARE_ODDS = 0.01;
+  reroll.addEventListener('click', () => {
+    const id = Math.random().toString(36).slice(2, 12).padEnd(10, '0');
+    if (Math.random() < RARE_ODDS) {
+      const kind = M.SPECIAL_KINDS[Math.floor(Math.random() * M.SPECIAL_KINDS.length)];
+      const seed = `sp:${kind}:${id.slice(0, 8)}`;
+      setM({ active: seed });
+      codeMsg.hidden = false; codeMsg.style.color = 'var(--good)';
+      codeMsg.textContent = `✨ Lucky! You found ${M.generate(seed).name}, a rare ${M.speciesName('special:' + kind)} pet (1 in 100). Save it before you roll again!`;
+      api.emote('done');
+    } else { setM({ active: 'm' + id }); codeMsg.hidden = true; }
+  });
   save.addEventListener('click', () => { const { active, saved } = S.settings.monsters; if (saved.length < MAX && !saved.includes(active) && active !== S.signature) setM({ saved: [...saved, active] }); });
 
   function slot(seed, tag, deletable) {
     const spec = M.generate(seed);
-    const cv = el('canvas'); const mp = new Pet(cv, { scale: 4, spriteOnly: true }); mp.setSeed(seed); { const st = S.evolution ? S.evolution.stage : 2, pin = Math.min(st, (S.settings.evolution && S.settings.evolution.display) || 0); mp.setForm(pin || st, pin && pin < st ? 0 : S.evolution ? S.evolution.fat : 0); }
+    const cv = el('canvas'); const mp = new Pet(cv, { scale: 3, spriteOnly: true }); mp.setSeed(seed); { const st = S.evolution ? S.evolution.stage : 2, pin = Math.min(st, (S.settings.evolution && S.settings.evolution.display) || 0); mp.setForm(pin || st, pin && pin < st ? 0 : S.evolution ? S.evolution.fat : 0); }
     const b = el('button', { class: 'slot', type: 'button', 'aria-pressed': String(S.settings.monsters.active === seed), 'aria-label': `${spec.name}${tag ? `, ${tag}` : ''}`, title: spec.traits.join(' · ') },
       cv, el('span', { class: 'sname', text: spec.name }), el('span', { class: 'stag', text: tag || '\u00a0' }));
     b.addEventListener('click', () => setM({ active: seed }));
@@ -76,7 +88,7 @@ export function petsView(root, api) {
       const ownShown = own ? false : !hideOwn;
       // if the one you remove is the active pet, switch to another you have — or a brand-new one if none are left
       let next = active;
-      if (active === seed) next = ownShown ? S.signature : left[0] || 'n' + Math.random().toString(36).slice(2, 12);
+      if (active === seed) next = ownShown ? S.signature : left[0] || 'm' + Math.random().toString(36).slice(2, 12).padEnd(10, '0');
       const keep = !ownShown && !left.length ? [next] : left;
       setM({ saved: keep, active: next, hideOwn: own ? true : hideOwn });
     });
@@ -96,7 +108,7 @@ export function petsView(root, api) {
       if (!seed) ap.setLocked(true);
       const name = seed ? M.speciesName(sp) : secret ? '???' : M.speciesName(sp);
       const b = el('button', { class: 'acard' + (secret ? ' secret' : ''), type: 'button', 'aria-pressed': String(!!seed && s.settings.monsters.active === seed), disabled: !seed,
-        title: seed ? `${M.speciesName(sp)} — ${M.generate(seed).name}. Click to show it.` : secret ? 'A secret pet — unlocked with a code' : `${M.speciesName(sp)} — not found yet. Keep generating!` }, cv, el('span', { text: name }));
+        title: seed ? `${M.speciesName(sp)} — ${M.generate(seed).name}. Click to show it.` : secret ? 'A secret pet — 1 in 100 from Generate another, or unlock it with a code' : `${M.speciesName(sp)} — not found yet. Keep generating!` }, cv, el('span', { text: name }));
       if (seed) b.addEventListener('click', () => setM({ active: seed }));
       return b;
     }));
@@ -140,7 +152,10 @@ export function petsView(root, api) {
       const nodes = hideOwn ? [] : [slot(s.signature, 'You', true)];
       bringBack.hidden = !hideOwn;
       if (hideOwn) { bringBack.textContent = `Bring back ${M.generate(s.signature).name} (your first pet)`; bringBack.onclick = () => setM({ hideOwn: false }); }
-      for (let i = 0; i < MAX; i++) nodes.push(saved[i] ? slot(saved[i], '', true) : el('div', { class: 'slot empty-slot', 'aria-hidden': 'true' }, el('span', { class: 'sname', text: 'Empty' })));
+      for (let i = 0; i < saved.length; i++) nodes.push(slot(saved[i], '', true));
+      // a couple of empty spots to show there's room, not a wall of twelve empty boxes
+      const free = MAX - saved.length;
+      for (let i = 0; i < Math.min(free, (4 - (nodes.length % 4)) % 4 || (free ? 1 : 0)); i++) nodes.push(el('div', { class: 'slot empty-slot', 'aria-hidden': 'true' }, el('span', { class: 'sname', text: 'Empty' })));
       slotsBox.replaceChildren(...nodes);
       drawAlbum(s);
     },

@@ -106,8 +106,8 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       // monster generate/save via settings round-trip
       await js(`window.tokkie.setSettings({monsters:{active:'r12345678',saved:['a','b']}})`); await wait(500);
       const m = settings.get('monsters'); ok('pet selection persists', m.active === 'r12345678' && m.saved.length === 2);
-      await js(`window.tokkie.setSettings({monsters:{active:'x',saved:['1','2','3','4','5','6','7']}})`); await wait(200);
-      ok('collection capped at 5', settings.get('monsters').saved.length === 5);
+      await js(`window.tokkie.setSettings({monsters:{active:'x',saved:${JSON.stringify(Array.from({ length: 15 }, (_, i) => String(i)))}}})`); await wait(200);
+      ok('collection capped at 12', settings.get('monsters').saved.length === 12);
       await js(`window.tokkie.setSettings({hotkey:'Not+A+Real+Key'})`); await wait(200);
       ok('invalid hotkey is rejected, old one kept', settings.get('hotkey') === 'CommandOrControl+Alt+Shift+L');
       await js(`window.tokkie.setSettings({__proto__:{x:1},evil:'x',samples:[1],finishBy:'7:00'})`); await wait(200);

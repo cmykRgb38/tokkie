@@ -79,6 +79,7 @@ function makeName(r, seed) {
 
 /** Build the creature description for a seed. Deterministic. */
 function generate(seed) {
+  if (/^beast:/.test(String(seed)) || (beastEligible(String(seed)) && rng(String(seed) + ':kind')() < BEAST_SHARE)) return generateBeast(String(seed));
   const r = rng(seed);
   const palette = makePalette(r);
   const shapeKey = pick(r, Object.keys(SHAPES));
@@ -122,16 +123,18 @@ const SPECIAL_KINDS = Object.keys(SPECIALS);
 // ---- species (the album) ---------------------------------------------------------------------
 const TOP_NAMES = { none: '', ears: 'Eared', horns: 'Horned', antenna: 'Antenna', twin: 'Twin-antenna', tuft: 'Tufted' };
 /** A pet's species: its body shape × what's on its head (30 kinds), or its special kind. */
-function speciesOf(spec) { return spec.special ? `special:${spec.special}` : `${spec.shape}:${spec.top}`; }
+function speciesOf(spec) { return spec.special ? `special:${spec.special}` : spec.animal ? `beast:${spec.animal}` : `${spec.shape}:${spec.top}`; }
 function speciesName(key) {
   const [a, b] = key.split(':');
   if (a === 'special') return (SPECIALS[b] || { title: b }).title;
+  if (a === 'beast') return (BEASTS[b] || { title: b }).title;
   return [TOP_NAMES[b], SHAPES[a] ? SHAPES[a].name : a].filter(Boolean).join(' ');
 }
 /** Every species, in album order: the 30 regular ones, then the specials. */
 function allSpecies() {
   const out = [];
   for (const sh of Object.keys(SHAPES)) for (const t of TOPS) if (!(sh === 'pear' && t === 'tuft')) out.push(`${sh}:${t}`);
+  for (const k of BEAST_KINDS) out.push(`beast:${k}`);
   for (const k of SPECIAL_KINDS) out.push(`special:${k}`);
   return out;
 }
@@ -140,6 +143,42 @@ function sampleSeed(key) {
   if (key.startsWith('special:')) return `sp:${key.slice(8)}:album`;
   for (let i = 0; i < 5000; i++) { const s = `album:${key}:${i}`; if (speciesOf(generate(s)) === key) return s; }
   return `album:${key}`;
+}
+
+
+// ---- animals (front-facing, like the monsters) -------------------------------------------------
+// Only seeds made from 1.0.21 on can be animals, so nobody's existing pet changes.
+const BEAST_SHARE = 0.35;
+const beastEligible = (seed) => /:v2:/.test(seed) || /^m[a-z0-9]{6,}$/.test(seed) || /^album:/.test(seed) || /^beast:/.test(seed);
+const BEASTS = {
+  cat:    { title: 'Kitty',  top: 'catEars',     muzzle: 'cat' },
+  fox:    { title: 'Fox',    top: 'foxEars',     muzzle: 'fox' },
+  dog:    { title: 'Pup',    top: 'dogEars',     muzzle: 'dog' },
+  bunny:  { title: 'Bunny',  top: 'bunnyEars',   muzzle: 'bunny' },
+  dino:   { title: 'Dino',   top: 'dinoSpikes',  muzzle: 'dino' },
+  dragon: { title: 'Dragon', top: 'dragonHorns', muzzle: 'dragon' },
+};
+const BEAST_KINDS = Object.keys(BEASTS);
+const ANIMAL_TOP_H = { catEars: 2, foxEars: 3, dogEars: 1, bunnyEars: 4, dinoSpikes: 2, dragonHorns: 2 };
+
+/** An animal is a monster with animal features: ears/horns on top, a muzzle, sometimes a tail or wings. Four legs, wide body. */
+function generateBeast(seed) {
+  const r = rng(seed + ':beast');
+  const forced = /^beast:(\w+)/.exec(seed);
+  const kind = forced && BEASTS[forced[1]] ? forced[1] : pick(r, BEAST_KINDS);
+  const palette = makePalette(r);
+  const shape = pick(r, { cat: ['blob', 'dome', 'box'], fox: ['dome', 'blob'], dog: ['blob', 'dome'], bunny: ['dome', 'blob'], dino: ['tank', 'box', 'blob'], dragon: ['blob', 'tank', 'box'] }[kind]);
+  const hw = kind === 'dog' ? 5 : int(r, 5, 6), bodyH = int(r, 5, 7), legLen = int(r, 1, 2);   // pups leave room for their ears
+  const top = BEASTS[kind].top;
+  const y0 = GROUND - legLen - bodyH + 1;
+  const rows = SHAPES[shape].delta(bodyH).map((d) => Math.max(2, hw + d));
+  return {
+    seed, name: makeName(r, seed), palette, shape, hw, bodyH, y0, rows, top, topH: ANIMAL_TOP_H[top],
+    arms: kind === 'dragon' ? 'wings' : 'none', eyes: pick(r, ['pill', 'big', 'square']), marks: pick(r, ['belly', 'none', 'spots']), mouth: 'smile',
+    legsN: 4, legLen, eyeGap: Math.min(hw - 2, int(r, 1, 2)), seedMarks: { spots: Array.from({ length: 3 }, () => [int(r, 1, hw - 1), int(r, 1, bodyH - 3)]) },
+    animal: kind, muzzle: BEASTS[kind].muzzle, tail: kind === 'fox' || kind === 'cat' || kind === 'dino',
+    traits: [BEASTS[kind].title, 'Four-legged'],
+  };
 }
 
 // ---- sprite assembly ------------------------------------------------------------------------
@@ -210,6 +249,15 @@ function buildStatic(spec, bodyShift) {
   else if (spec.top === 'antenna') { g.mirror(0, top - 1, p.shade); g.mirror(0, top - 2, p.shade); for (const hx of [0, 1]) g.mirror(hx, top - 3, p.accent); }
   else if (spec.top === 'twin') { const hx = Math.min(2, w0 - 1); g.mirror(hx, top - 1, p.shade); g.mirror(hx, top - 2, p.shade); g.mirror(hx, top - 3, p.accent); }
   else if (spec.top === 'tuft') { for (const hx of [0, 1]) g.mirror(hx, top - 1, p.shade); g.mirror(0, top - 2, p.shade); }
+  else if (spec.top === 'catEars') { g.mirror(w0, top - 1, p.body); g.mirror(w0 - 1, top - 1, p.body); g.mirror(w0, top - 2, p.body); g.mirror(w0 - 1, top - 1, '#ffb3c6'); }
+  else if (spec.top === 'foxEars') { for (const dy of [1, 2]) { g.mirror(w0, top - dy, p.body); g.mirror(w0 - 1, top - dy, dy === 1 ? '#fff7ee' : p.body); } g.mirror(w0, top - 3, p.shade); }
+  else if (spec.top === 'dogEars') {                // droopy ears: up over the head, then hanging down outside it
+    g.mirror(w0 - 1, top - 1, p.shade); g.mirror(w0, top - 1, p.shade);
+    for (let dy = 0; dy <= 3; dy++) { const x = rowW(Math.min(dy, spec.bodyH - 1)) + 1; g.mirror(x, top + dy, p.shade); if (dy >= 1 && dy <= 2) g.mirror(x + 1, top + dy, p.shade); }
+  }
+  else if (spec.top === 'bunnyEars') { const hx = Math.max(1, Math.min(2, w0 - 1)); for (let dy = 1; dy <= 4; dy++) { g.mirror(hx + 1, top - dy, p.body); g.mirror(hx, top - dy, dy === 1 || dy === 4 ? p.body : '#ffb3c6'); } }
+  else if (spec.top === 'dinoSpikes') { for (let hx = 0; hx <= w0 - 1; hx += 2) { g.mirror(hx, top - 1, p.accent); if (hx === 0) g.set(CX, top - 2, p.accent); } }
+  else if (spec.top === 'dragonHorns') { g.mirror(w0 - 1, top - 1, p.accent); g.mirror(w0, top - 2, p.accent); g.mirror(0, top - 1, p.accent); }
   else if (spec.top === 'unicorn') {                 // one spiral horn, gold and white, centred
     const gold = '#ffd166', pearl = '#fff7e6';
     g.set(CX, top - 1, gold); g.set(CX, top - 2, pearl); g.set(CX, top - 3, gold); g.set(CX, top - 4, pearl);
@@ -218,12 +266,23 @@ function buildStatic(spec, bodyShift) {
   else if (spec.top === 'crown') { for (const hx of [0, 1, 2]) g.mirror(hx, top - 1, '#ffd166'); g.mirror(2, top - 1, '#e0a800'); g.mirror(0, top - 1, p.accent); for (const hx of [0, 2]) g.mirror(hx, top - 2, '#ffd166'); g.mirror(1, top - 2, '#e0a800'); g.set(CX, top - 2, '#ffd166'); }
 
   // arms
-  if (spec.arms !== 'none') {
+  if (spec.arms !== 'none' && spec.arms !== 'wings') {
     const ay = y0 + Math.max(2, spec.bodyH - 4);
     const aw = rowW(ay - y0);
     g.mirror(aw + 1, ay, p.body);
     if (spec.arms === 'claws') { g.mirror(aw + 1, ay + 1, p.body); g.mirror(aw + 2, ay + 1, p.shade); }
   }
+  if (spec.arms === 'wings') {                     // little bat wings at the shoulders
+    const wy = y0 + 1, ww = rowW(1);
+    g.mirror(ww + 1, wy, p.accent); g.mirror(ww + 1, wy + 1, p.accent); g.mirror(ww + 2, wy - 1, p.accent); g.mirror(ww + 2, wy, p.accentDark);
+  }
+  if (spec.tail) {                                  // a tail peeking out on one side (the only asymmetric bit)
+    const tx = CX + rowW(spec.bodyH - 2) + 1, ty = y0 + spec.bodyH - 3;
+    const c = spec.animal === 'dino' ? p.shade : p.body;
+    g.set(tx, ty + 1, c); g.set(tx + 1, ty, c); g.set(tx + 1, ty - 1, spec.animal === 'fox' ? '#fff7ee' : c);
+    if (spec.animal === 'fox') g.set(tx + 2, ty - 1, '#fff7ee');
+  }
+  if (spec.crown) { for (const hx of [0, 1]) g.mirror(hx, top - 1 - ({ catEars: 0, foxEars: 0, bunnyEars: 0 }[spec.top] ?? 0), '#ffd166'); g.set(CX, top - 2, '#e0a800'); g.mirror(1, top - 2, '#ffd166'); }
   return { g, y0, bodyBottom };
 }
 
@@ -307,6 +366,20 @@ function drawEyes(spec, g, y0, pose) {
   if (st === 'trio' && (state === 'open' || state === 'wide' || state === 'angry')) put(CX, ey - 1, p.pupil);
 }
 
+/** Animal muzzle: a lighter patch around the mouth (fox/dog/bunny), whiskers on cats. */
+function drawMuzzle(spec, g, y0) {
+  const p = spec.palette, my = mouthY(spec, y0), k = spec.muzzle;
+  const put = (x, y, c) => { if (g.has(x, y)) g.set(x, y, c); };
+  if (k === 'fox' || k === 'dog' || k === 'bunny') for (const dy of [-1, 0, 1]) for (const hx of [0, 1]) { put(CX - hx, my + dy, k === 'fox' ? '#fff7ee' : p.light); put(CX + hx, my + dy, k === 'fox' ? '#fff7ee' : p.light); }
+  if (k === 'cat') { const w = spec.rows[Math.max(0, Math.min(spec.rows.length - 1, my - 1 - y0))]; g.mirror(w + 1, my - 1, p.outline); g.mirror(w + 1, my + 1, p.outline); }
+}
+function drawNose(spec, g, y0, pose) {
+  const p = spec.palette, my = mouthY(spec, y0), k = spec.muzzle;
+  const pink = k === 'cat' || k === 'bunny';
+  if (g.has(CX, my - 1)) g.set(CX, my - 1, pink ? '#ff8fa3' : p.pupil);
+  if (k === 'bunny' && (pose.mouth || 'smile') === 'smile' && g.has(CX, my + 1)) { g.set(CX, my + 1, p.fang); }
+}
+
 function drawMouth(spec, g, y0, pose) {
   const p = spec.palette, my = mouthY(spec, y0), mh = Math.min(spec.rows[Math.max(0, my - y0)] - 2, spec.mouth === 'wide' || spec.mouth === 'fangs' ? 2 : 1);
   const m = pose.mouth || 'smile';
@@ -352,7 +425,9 @@ function compose(spec, pose = {}) {
   });
 
   drawEyes(spec, g, y0, pose);
+  if (spec.muzzle) drawMuzzle(spec, g, y0);
   drawMouth(spec, g, y0, pose);
+  if (spec.muzzle) drawNose(spec, g, y0, pose);
 
   // 1px outline around the whole silhouette: the pixel-art look that makes it feel finished
   const outline = [];
@@ -389,9 +464,10 @@ function evolveSpec(base, stage = 2, fat = 0) {
     return Math.min(arms !== 'none' && i === armRow ? armCap : 7, w + belly);
   });
   if (base.top === 'unicorn') top = 'unicorn';      // a unicorn stays a unicorn at every stage
-  const topH = { none: 0, ears: 2, horns: 3, antenna: 3, twin: 3, tuft: 2, crown: 2, unicorn: 4 }[top];
+  if (base.animal) { top = base.top; arms = base.arms; legsN = 4; if (stage === 1) eyes = 'big'; }   // a fox stays a fox
+  const topH = ({ none: 0, ears: 2, horns: 3, antenna: 3, twin: 3, tuft: 2, crown: 2, unicorn: 4, ...ANIMAL_TOP_H })[top] + (base.animal && stage === 4 ? 2 : 0);
   const spots = { spots: Array.from({ length: 3 }, (_, i) => [Math.min(hw - 1, 1 + ((i * 2 + base.seed.length) % Math.max(1, hw - 1))), 1 + ((i + 1) % Math.max(1, bodyH - 3))]) };
-  return { ...base, stage, fat, hw, bodyH, y0: GROUND - legLen - bodyH + 1, rows, top, topH, arms, marks, eyes, mouth, legsN, legLen, eyeGap: Math.max(1, Math.min(hw - 2, base.eyeGap)), seedMarks: marks === 'spots' ? spots : base.seedMarks };
+  return { ...base, crown: !!base.animal && stage === 4, stage, fat, hw, bodyH, y0: GROUND - legLen - bodyH + 1, rows, top, topH, arms, marks, eyes, mouth, legsN, legLen, eyeGap: Math.max(1, Math.min(hw - 2, base.eyeGap)), seedMarks: marks === 'spots' ? spots : base.seedMarks };
 }
 
 /** Quick structural checks used by tests and the generator UI to guarantee every monster is presentable. */
@@ -414,5 +490,5 @@ function hueOf(hex) {
   return Math.round(((h * 60) + 360) % 360);
 }
 
-const api = { W, H, CX, GROUND, rng, generate, compose, silhouetteOf, hsl, key, anchors, evolveSpec, speciesOf, speciesName, allSpecies, sampleSeed, SPECIAL_KINDS };
+const api = { W, H, CX, GROUND, rng, generate, compose, silhouetteOf, hsl, key, anchors, evolveSpec, speciesOf, speciesName, allSpecies, sampleSeed, SPECIAL_KINDS, BEAST_KINDS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else self.TokkieMonster = api;

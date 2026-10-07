@@ -105,3 +105,21 @@ test('no poop: warm pets are never shaded brown, hatchlings are round, pears nev
     assert.notEqual(M.evolveSpec(s, 1).top, 'tuft');
   }
 });
+
+test('animals: only newly made pets can be one, every kind draws on the canvas at every stage and mood', () => {
+  const M = require('../src/core/monster');
+  assert.equal(M.generate('you:chuabh').animal, undefined);                 // existing pets never turn into animals
+  assert.equal(M.generate('you:alice:1a2b3c4d5e6f').animal, undefined);
+  let animals = 0;
+  for (let i = 0; i < 2000; i++) if (M.generate('m' + (36 ** 9 + i * 7919).toString(36)).animal) animals++;
+  assert.ok(animals > 500 && animals < 900, String(animals));               // about a third of new pets
+  for (const k of M.BEAST_KINDS) for (let i = 0; i < 10; i++) {
+    const b = M.generate(`beast:${k}:${i}`); assert.equal(b.animal, k); assert.equal(M.speciesOf(b), `beast:${k}`);
+    for (const st of [1, 2, 3, 4]) for (const fat of [0, 2]) for (const pose of [{}, { frame: 1, bob: -1, eye: 'happy', mouth: 'open' }, { eye: 'angry', mouth: 'grit', look: { x: -1, y: 1 } }, { eye: 'love', mouth: 'tongue' }]) {
+      const f = M.compose(M.evolveSpec(b, st, fat), pose);
+      for (const c of [...f.cells, ...f.outline]) assert.ok(c.x >= 0 && c.x < M.W && c.y >= 0 && c.y < M.H);
+      const a = M.anchors(M.evolveSpec(b, st, fat));
+      assert.ok(a.mouth.x < M.W && a.top >= -1);
+    }
+  }
+});

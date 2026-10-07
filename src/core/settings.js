@@ -57,7 +57,7 @@ class Settings {
     try { merge(this.data, JSON.parse(fs.readFileSync(this.file, 'utf8'))); } catch { /* first run or corrupt: defaults */ }
     const d = this.data;
     d.samples = (Array.isArray(d.samples) ? d.samples : []).filter((x) => x && Number.isFinite(x.start) && Number.isFinite(x.duration) && Number.isFinite(x.chars));
-    d.monsters = { active: String(d.monsters.active || ''), saved: (Array.isArray(d.monsters.saved) ? d.monsters.saved : []).map(String).slice(0, 5), hideOwn: !!d.monsters.hideOwn };
+    d.monsters = { active: String(d.monsters.active || ''), saved: (Array.isArray(d.monsters.saved) ? d.monsters.saved : []).map(String).slice(0, 12), hideOwn: !!d.monsters.hideOwn };
     for (const k of ['five', 'seven']) if (!isObj(d.calib[k]) || !(d.calib[k].k > 0)) d.calib[k] = {};
   }
   get(k) { return this.data[k]; }

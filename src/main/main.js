@@ -36,7 +36,7 @@ function ownSeed(settings) {
   if (!seed) {
     const m = settings.get('monsters') || {};
     const existing = m.active || (m.saved || []).length;            // installed before: keep the pet they know
-    seed = existing ? LEGACY_SIGNATURE : `${LEGACY_SIGNATURE}:${require('crypto').randomBytes(6).toString('hex')}`;
+    seed = existing ? LEGACY_SIGNATURE : `${LEGACY_SIGNATURE}:v2:${require('crypto').randomBytes(6).toString('hex')}`;   // v2: can be an animal
     settings.set({ seed });
   }
   return seed;
@@ -238,7 +238,7 @@ function setupIpc() {
       const prev = settings.get('hotkey');
       if (!registerHotkey(clean.hotkey)) { registerHotkey(prev); delete clean.hotkey; out.ok = false; out.error = 'That shortcut is taken or invalid.'; }
     }
-    if ('monsters' in clean) { const m = clean.monsters; clean.monsters = { active: String(m.active || SIGNATURE).slice(0, 80), saved: (m.saved || []).map((x) => String(x).slice(0, 80)).slice(0, 5), hideOwn: !!m.hideOwn }; }
+    if ('monsters' in clean) { const m = clean.monsters; clean.monsters = { active: String(m.active || SIGNATURE).slice(0, 80), saved: (m.saved || []).map((x) => String(x).slice(0, 80)).slice(0, 12), hideOwn: !!m.hideOwn }; }
     if ('bufferMin' in clean) clean.bufferMin = Math.max(0, Math.min(120, Number(clean.bufferMin) || 0));
     if ('fallbackBudget5h' in clean) clean.fallbackBudget5h = Math.max(0, Number(clean.fallbackBudget5h) || 0);
     if ('scale' in clean) clean.scale = [5, 6, 8].includes(Number(clean.scale)) ? Number(clean.scale) : 6;
@@ -326,9 +326,9 @@ function setupIpc() {
     if (!kind) { codeTries.push(now); return { ok: false, error: 'That code doesn’t unlock anything.' }; }
     const seed = `sp:${kind}:${require('crypto').randomBytes(4).toString('hex')}`;
     const m = settings.get('monsters');
-    settings.set({ monsters: { ...m, active: seed, saved: m.saved.length < 5 ? [...m.saved, seed] : m.saved } });
+    settings.set({ monsters: { ...m, active: seed, saved: m.saved.length < 12 ? [...m.saved, seed] : m.saved } });
     noteAlbum(); refreshTray(); send('state', snapshot());
-    return { ok: true, kind, seed, saved: m.saved.length < 5, name: Monster.generate(seed).name };
+    return { ok: true, kind, seed, saved: m.saved.length < 12, name: Monster.generate(seed).name };
   });
   ipcMain.handle('run:prompt', (_e, sid, uuid) => engine.promptText(String(sid), String(uuid)));
   ipcMain.handle('ui:copyText', async (_e, t) => { const v = String(t).slice(0, 1_000_000); try { await clipboard.writeText(v); lastClipboard = v; return { ok: true }; } catch { return { ok: false }; } });

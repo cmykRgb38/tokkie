@@ -110,9 +110,21 @@ export class Pet {
     this.particles.push({ k: 'crumb', x: mx + side * (6 + Math.floor(Math.random() * 3)), y: my - 3 - Math.floor(Math.random() * 3), tx: mx, ty: my, life: 14,
       c: Math.random() < 0.5 ? '#ffd166' : this.spec.palette.accent });
   }
-  spark() {
+  spark(colors) {
     const x = OX + 2 + Math.floor(Math.random() * (M.W - 4)), y = Math.max(1, OY + (this.anch ? this.anch.top : 4) - 2 - Math.floor(Math.random() * 3));
-    this.particles.push({ k: 'spark', x, y, life: 6 + Math.floor(Math.random() * 4), age: 0 });
+    this.particles.push({ k: 'spark', x, y, life: 6 + Math.floor(Math.random() * 4), age: 0, colors });
+  }
+  /** Special pets' own glitter: sparkles all around golden and diamond pets, rainbow confetti for rainbow ones. */
+  shimmer() {
+    const sp = this.spec && this.spec.special;
+    if (sp === 'golden' || sp === 'diamond') {
+      const colors = sp === 'golden' ? ['#fff6c8', '#ffd166'] : ['#ffffff', '#bff4ff'];
+      const x = 1 + Math.floor(Math.random() * (SCENE_W - 2)), y = 1 + Math.floor(Math.random() * (SCENE_H - 4));
+      this.particles.push({ k: 'spark', x, y, life: 5 + Math.floor(Math.random() * 4), age: 0, colors });
+    } else if (sp === 'rainbow' || sp === 'unicorn') {
+      const c = ['#ff5c5c', '#ffa23a', '#ffe14d', '#4fd67a', '#4db8ff', '#8a6bff', '#ff6bd6'][Math.floor(Math.random() * 7)];
+      this.particles.push({ k: 'confetti', x: 1 + Math.floor(Math.random() * (SCENE_W - 2)), y: 0, life: 14 + Math.floor(Math.random() * 6), c, drift: Math.random() < 0.5 ? -1 : 1 });
+    }
   }
   heart() {
     // keep hearts apart so they read as hearts, not a smear
@@ -142,6 +154,7 @@ export class Pet {
       p.life--;
       if (p.k === 'crumb') { p.x += Math.sign(p.tx - p.x) * (Math.abs(p.tx - p.x) > 1 ? 1 : 0); p.y += Math.sign(p.ty - p.y); if (Math.abs(p.tx - p.x) <= 1 && p.y === p.ty) p.life = 0; }
       else if (p.k === 'spark') p.age++;
+      else if (p.k === 'confetti') { p.y += 1; if (t % 3 === 0) p.x += p.drift; }
       else if (p.k === 'z') { p.y -= t % 2 ? 1 : 0; p.x += t % 4 === 0 ? 1 : 0; }
       else if (p.k === 'sweat') p.y += 1;
       else if (p.k === 'heart') { p.y -= t % 2 ? 1 : 0; p.x += t % 6 < 3 ? 0 : 1; }
@@ -151,6 +164,7 @@ export class Pet {
 
     if (!reduce.matches) {
       if (m === 'work' && t % Math.max(1, Math.round(4 / this.intensity)) === 0) this.crumb();
+      if (this.spec.special && m !== 'sleep' && t % (this.spec.special === 'rainbow' || this.spec.special === 'unicorn' ? 3 : 5) === 0) this.shimmer();
       if (m === 'sleep' && t % 12 === 0) this.particles.push({ k: 'z', x: Math.min(OX + this.anch.side, SCENE_W - 6), y: Math.max(0, OY + this.anch.top - 4), life: 16 });
       if (m === 'stress' && t % 7 === 0) this.particles.push({ k: 'sweat', x: OX + M.CX + this.spec.hw - 1, y: OY + this.anch.eyeY - 2, life: 4 });
       if (m === 'angry' && t % 3 === 0) this.steam();
@@ -235,7 +249,8 @@ export class Pet {
     }
     for (const p of this.particles) {
       if (p.k === 'crumb') px(p.x, p.y, p.c);
-      else if (p.k === 'spark') { const c = p.age % 2 ? '#fff6c8' : '#ffd166'; px(p.x, p.y, c); if (p.age % 2 === 0) for (const [dx, dy] of SPARK) px(p.x + dx, p.y + dy, c); }
+      else if (p.k === 'spark') { const cs = p.colors || ['#fff6c8', '#ffd166'], c = p.age % 2 ? cs[0] : cs[1]; px(p.x, p.y, c); if (p.age % 2 === 0) for (const [dx, dy] of SPARK) px(p.x + dx, p.y + dy, c); }
+      else if (p.k === 'confetti') { px(p.x, p.y, p.c); if (p.life % 4 < 2) px(p.x + p.drift, p.y, p.c); }
       else if (p.k === 'z') Z.forEach((row, r) => [...row].forEach((ch, cx) => ch === '#' && px(p.x + cx, p.y + r, 'rgba(200,210,255,0.95)')));
       else if (p.k === 'sweat') { px(p.x, p.y, '#8fd3ff'); px(p.x, p.y + 1, '#5ab4f0'); }
       else if (p.k === 'heart') HEART.forEach((row, r) => [...row].forEach((ch, cx) => ch === '#' && px(p.x + cx, p.y + r, p.life > 3 ? '#ff6b9d' : '#ffb3cc')));

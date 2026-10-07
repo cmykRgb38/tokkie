@@ -54,7 +54,7 @@ Tokkie auto-detects Claude Code (`~/.claude`) and Cowork (the Claude desktop app
 | **Dock** | A card **below or above** the pet — or, with **Claude bar**, a one-line bar above Claude Code’s prompt box (drawn by the bridge), while the pet stays on your desktop. Lines: usage % (and `$X/200`), pace / run-out date, status, tokens today, last prompt cost, context, cache timer, agents — each switchable. **Pills** layout has its own picks. |
 | **Usage tab** | Plan limits, tokens, burn rate, sparkline. |
 | **Estimate tab** | Set "done by" (e.g. `6:30pm`). Paste a prompt, or select it all, **copy** it (⌘C), then press the shortcut from anywhere (default **⌘⌥⇧L / Ctrl+Alt+Shift+L**) — no need to open Tokkie first. |
-| **Pets tab** | Generate, save, switch and remove pets (your first one too — and bring it back). **Album**: 35 species to discover (silhouettes until found), including 6 secret ones unlocked with codes. Pick a **personality**; tap an unlocked form to show it; preview emotions. |
+| **Pets tab** | Generate, save (up to 12), switch and remove pets (your first one too — and bring it back). New pets can be **animals** (kitty, fox, pup, bunny, dino, dragon) drawn side-on, Digimon-style. **Album**: 41 species to discover (silhouettes until found), including 6 secret ones: 1 in 100 from Generate another (a blind box), or unlocked with a code. Golden and diamond pets sparkle; rainbow and unicorn pets rain confetti. Pick a **personality**; tap an unlocked form to show it; preview emotions. |
 | **Settings** | Claude Code bridge, spend limit, layout + Dock lines, theme, size, shortcut, attention alerts, clipboard watch, notifications, launch at login. |
 
 ### Your real usage percentage (automatic)
@@ -82,6 +82,10 @@ Honest answer: **useful, not magic.** Agent runs vary enormously. Tokkie learns 
 - **macOS: "Tokkie can't be opened / Apple could not verify…"** – Tokkie isn't notarised by Apple (that needs a paid developer account). Open it once, click **Done**, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. You only do this once.
 - **macOS: "Tokkie is damaged and can't be opened"** (downloads of v1.0.9 and older) – run `xattr -cr /Applications/Tokkie.app` in Terminal, then open it again. Or install v1.0.10 or newer, which is fully signed so you get the normal prompt above instead.
 - **Windows** – built and tested in CI only; please report issues.
+
+## All the pets
+
+`node scripts/pet-sheet.js` draws every species as Hatchling → Junior → Champion → Mega into `docs/pet-sheet.svg`.
 
 ## Development
 
