@@ -35,6 +35,7 @@ const api = {
   setReading: (id, pct) => bridge.setReading(id, pct),
   emote: (m) => pet.emote(m, m === 'sleep' ? 5000 : 3500),
   dismissWelcome: () => bridge.setSettings({ onboarded: true }),
+  openTab: (t) => setMode('expanded', t),
   hide: () => bridge.ui.hide(), quit: () => bridge.ui.quit(),
 };
 const views = {
@@ -168,9 +169,12 @@ function dockLines(S, d, on = S.settings.dock || {}) {
   const m = (S.meters || [])[0];
   const short = { five: '5-hour', seven: 'Weekly', extra: 'Usage', spend: 'Spend', budget: 'Budget' };
   if (on.usage !== false && m) {
-    const v = `${m.approx ? '≈' : ''}${Math.round(m.pct)}%` + (m.limitUsd ? ` · $${Math.round(m.usd)}/${Math.round(m.limitUsd)}` : '');
+    // A raw reading (no live estimate yet) can be hours old: say so instead of passing it off as "now".
+    const age = now - (m.readAt || now), old = !m.approx && m.source !== 'estimate' && age > 30 * 60e3;
+    const v = `${m.approx ? '≈' : ''}${Math.round(m.pct)}%` + (m.limitUsd ? ` · $${Math.round(m.usd)}/${Math.round(m.limitUsd)}` : '') + (old ? ` · ${fmtDur(age / 1000)} old` : '');
     const low = S.nextFit && S.nextFit.status !== 'ok' && S.nextFit.id === m.id;
-    out.push({ k: 'usage', label: short[m.id] || 'Usage', value: v, pill: `${m.approx ? '≈' : ''}${Math.round(m.pct)}% used` + (m.limitUsd ? ` · $${Math.round(m.usd)}` : ''), tone: low ? 'bad' : kindUsed(m.pct), dot: low ? 'bad' : kindUsed(m.pct), title: `${m.label}${m.mode === 'dollars' ? ' — Claude Code part is exact dollars from the bridge' : m.approx ? ' — live estimate since Claude’s last reading' : ''}` });
+    const needLimit = m.id === 'extra' && !m.limitUsd;
+    out.push({ k: 'usage', label: short[m.id] || 'Usage', value: v, pill: `${m.approx ? '≈' : ''}${Math.round(m.pct)}% used` + (m.limitUsd ? ` · $${Math.round(m.usd)}` : '') + (old ? ` · ${fmtDur(age / 1000)} old` : ''), tone: low ? 'bad' : old ? '' : kindUsed(m.pct), dot: low ? 'bad' : old ? 'idle' : kindUsed(m.pct), title: `${m.label}${m.mode === 'dollars' ? ' — Claude Code part is exact dollars from the bridge' : m.approx ? ' — live estimate since Claude’s last reading' : old ? ` — Claude’s last reading, ${fmtDur(age / 1000)} ago. Open Claude → Settings → Usage to refresh it, or use Sync with Claude` : ''}${needLimit ? '. Enter your $ limit in Tokkie → Settings for dollars and a live estimate' : ''}` });
   }
   if (on.pace !== false && m && m.pace) {
     const p = m.pace, tone = p.tone === 'alert' ? 'bad' : p.tone === 'fast' ? 'warn' : 'good';
@@ -270,7 +274,7 @@ function barTip(l) {
 /** The Claude bar is one row: shortest wording of each item (the icon says what it is). */
 function barText(l) {
   const v = String(l.value);
-  if (l.k === 'usage') return v.replace(/\/\d+$/, '');                       // ≈58% · $115/200 → ≈58% · $115
+  if (l.k === 'usage') return v.replace(/\/\d+( · |$)/, '$1');                       // ≈58% · $115/200 → ≈58% · $115
   if (l.k === 'pace') return v.replace(/^out ~\w{3} /, 'out ');               // out ~Mon 12 Oct → out 12 Oct
   if (l.k === 'status') return v.replace(/ · (\d+\w*)( \d+s)? ago$/, ' $1');   // Done · 1m 19s ago → Done 1m
   if (l.k === 'context') return v.replace(/ · \d+%$/, '');

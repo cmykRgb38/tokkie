@@ -92,8 +92,10 @@ class Engine extends EventEmitter {
    * reading, Claude Code's part is exact dollars; everything else (Cowork, Chat, Code without the bridge) is estimated from tokens.
    */
   _live(id, reading, now) {
-    const k = this.desktopK[id];
     const limit = this.settings.get('spendLimitUsd') || 0;
+    // No calibration from Claude's readings yet (new install, few readings): with a $ limit, learn tokens→% from
+    // the bridge's exact dollars instead — your own cost per token × your limit.
+    const k = this.desktopK[id] || (id === 'extra' && limit > 0 ? this._dollarK(limit, now) : null);
     if (id === 'extra' && limit > 0 && reading && this.ledger.covers(reading.t)) {
       const usd = this.ledger.since(reading.t + 1);
       const rest = k ? (this.store.sumSince(reading.t + 1, now, this.ledger.sessions()).weighted / k) * 100 : 0;
@@ -101,6 +103,23 @@ class Engine extends EventEmitter {
       return { pct: Math.min(100, reading.pct + added), baseline: reading.pct, added, mode: 'dollars', exactUsd: usd };
     }
     return liveEstimate(reading, k, this.store, now);
+  }
+
+  /**
+   * Weighted tokens per 100% of a dollar limit, from the bridge: exact session costs vs the tokens those
+   * sessions used. Cached for a minute. null until there's at least ~$0.50 of matched spend.
+   */
+  _dollarK(limit, now = this.now()) {
+    if (this._dk && now - this._dk.at < 60e3) return this._dk.perUsd ? limit * this._dk.perUsd : null;
+    const costs = new Map();
+    for (const [key, usd] of Object.entries(this.ledger.state.last)) if (key.startsWith('code:') && usd > 0) costs.set(key.slice(5), usd);
+    const tok = new Map();
+    if (costs.size) for (const m of this.store.msgs.values()) if (costs.has(m.sessionId)) tok.set(m.sessionId, (tok.get(m.sessionId) || 0) + m.input + m.output + m.cacheWrite + m.cacheRead * 0.1);
+    let usd = 0, w = 0;
+    for (const [sid, c] of costs) { const t = tok.get(sid) || 0; if (t > 0 && c > 0.02) { usd += c; w += t; } }
+    const perUsd = usd >= 0.5 && w > 0 ? w / usd : null;          // weighted tokens per dollar
+    this._dk = { at: now, perUsd };
+    return perUsd ? limit * perUsd : null;
   }
 
   _persistSamples() { this.settings.set({ samples: this.store.samples.slice(-300) }); }
@@ -233,7 +252,8 @@ class Engine extends EventEmitter {
     let worst = null;
     for (const m of meters || []) {
       if (!Number.isFinite(m.pct) || m.id === 'budget') continue;
-      const k = m.id === 'five' ? ((this.settings.get('calib').five || {}).k || this.desktopK.five) : this.desktopK[m.id];
+      const lim = this.settings.get('spendLimitUsd') || 0;
+      const k = m.id === 'five' ? ((this.settings.get('calib').five || {}).k || this.desktopK.five) : this.desktopK[m.id] || (m.id === 'extra' && lim > 0 ? this._dollarK(lim, now) : null);
       const left = Math.max(0, 100 - m.pct);
       if (!k && left > 0) continue;
       const need = k ? { p50: (tokens.p50 / k) * 100, p75: (tokens.p75 / k) * 100 } : { p50: 0, p75: 0 };

@@ -39,6 +39,7 @@ function meterNode(title, id, api) {
         : m.approx ? 'Claude only saves a reading now and then. Tokkie adds what you have used since, calibrated against Claude’s earlier readings.' : '';
       const parts = [el('span', { text: note, title: how })];
       if (m.limitUsd) parts.push(el('span', { class: 'val', text: `$${m.usd.toFixed(2)} of $${Math.round(m.limitUsd)}` }));
+      else if (m.id === 'extra') parts.push(el('button', { class: 'btn sm quiet', type: 'button', text: 'Claude shows a $ limit? Enter it →', title: 'Type the $ limit from Claude → Settings → Usage (e.g. $600) for dollars and a live estimate', onclick: () => api.openTab('settings') }));
       if (m.resetsAt && m.resetsAt > now) parts.push(el('span', { text: `resets in ${fmtDur((m.resetsAt - now) / 1000)}` }));
       if (m.pace) {
         const p = m.pace, out = p.runOutAt ? new Date(p.runOutAt).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : null;

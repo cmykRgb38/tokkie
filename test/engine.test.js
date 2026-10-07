@@ -101,3 +101,27 @@ test('fit check: says when a prompt will not fit in what is left of a limit', as
   assert.equal(eng._fit({ p50: 1, p75: 1 }, [{ id: 'seven', label: 'w', pct: 50 }]), null);       // can't convert → no claim
   fs.rmSync(dir, { recursive: true });
 });
+
+test('new install with a $ limit: the bridge’s exact dollars calibrate the live estimate (no stale reading shown as current)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokkie-eng-'));
+  const proj = path.join(dir, 'projects', 'p'); fs.mkdirSync(proj, { recursive: true });
+  const app = path.join(dir, 'app'); fs.mkdirSync(app);
+  const env = { TOKKIE_HOME: path.join(dir, 'lh') };
+  const settings = new Settings(path.join(dir, 'settings.json'));
+  settings.set({ spendLimitUsd: 600 });
+  const now = Date.now(), old = now - 30 * 3600e3;
+  // one old Claude reading (23%), no history to calibrate from
+  fs.writeFileSync(path.join(app, 'plan-usage-history.json'), JSON.stringify({ samples: [{ t: old, org: 'o', u: { xu: 23 } }] }));
+  // since then: a Claude Code session with 1M weighted tokens that the bridge says cost $66 (= 11% of $600)
+  fs.writeFileSync(path.join(proj, 's.jsonl'), A(now - 3 * 3600e3, 'x', { s: 'S', i: 0, o: 1_000_000, cw: 0, cr: 0, stop: 'end_turn' }) + '\n');
+  const bdir = path.join(env.TOKKIE_HOME, 'bridge'); fs.mkdirSync(bdir, { recursive: true });
+  const write = (usd, at) => { const f = path.join(bdir, 'S.json'); fs.writeFileSync(f, JSON.stringify({ sessionId: 'S', updatedAt: at, costUsd: usd, turns: [] })); fs.utimesSync(f, new Date(at), new Date(at)); };
+  write(0.0, now - 3 * 3600e3);
+  const eng = new Engine({ settings, env, home: dir, desktopDirs: [app], roots: () => [{ dir: path.join(dir, 'projects'), source: 'code' }] });
+  await eng.start();
+  write(66, now - 60e3); eng._readBridge(); eng._dk = null; eng._snapKey = null;
+  const m = eng.snapshot().meters.find((x) => x.id === 'extra');
+  assert.equal(m.approx, true);
+  assert.ok(Math.abs(m.pct - 34) < 0.6, `pct ${m.pct}`);           // 23% + $66/$600
+  eng.stop(); fs.rmSync(dir, { recursive: true });
+});
