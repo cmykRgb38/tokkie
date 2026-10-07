@@ -291,7 +291,7 @@ function setupIpc() {
     try { await shell.openExternal(`claude://resume?session=${id}`); return { ok: true }; } catch { return { ok: false }; }
   });
   ipcMain.handle('run:prompt', (_e, sid, uuid) => engine.promptText(String(sid), String(uuid)));
-  ipcMain.handle('ui:copyText', async (_e, t) => { try { await clipboard.writeText(String(t).slice(0, 2000)); lastClipboard = String(t).slice(0, 2000); return { ok: true }; } catch { return { ok: false }; } });
+  ipcMain.handle('ui:copyText', async (_e, t) => { const v = String(t).slice(0, 1_000_000); try { await clipboard.writeText(v); lastClipboard = v; return { ok: true }; } catch { return { ok: false }; } });
   ipcMain.on('ui:openExternal', (_e, url) => { if (/^https:\/\/[^\s]+$/.test(String(url))) shell.openExternal(url); });
   ipcMain.on('ui:revealSettings', () => { shell.showItemInFolder(settings.file); });
 }

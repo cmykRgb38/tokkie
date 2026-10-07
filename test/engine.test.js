@@ -125,3 +125,19 @@ test('new install with a $ limit: the bridge’s exact dollars calibrate the liv
   assert.ok(Math.abs(m.pct - 34) < 0.6, `pct ${m.pct}`);           // 23% + $66/$600
   eng.stop(); fs.rmSync(dir, { recursive: true });
 });
+
+test('full prompt text is read on demand, in chunks, and long prompts are trimmed for display but not for copying', async () => {
+  const { dir, proj, eng } = rig();
+  const t0 = T(), long = 'Once upon a time. '.repeat(10_000);          // ~180k characters, a "storybook" prompt
+  const filler = Array.from({ length: 3000 }, (_, i) => A(t0 - 1e6 + i, 'f' + i, { stop: 'end_turn' })).join('\n');   // ~1.5 MB before it
+  fs.writeFileSync(path.join(proj, 's.jsonl'), [filler, U(t0, long), A(t0 + 4000, 'a', { stop: 'end_turn' })].join('\n') + '\n');
+  await eng.start();
+  const run = eng.recentRuns(1)[0];
+  assert.ok(run.hasText && run.preview.startsWith('Once upon a time.'));
+  const t = await eng.promptText(run.sessionId, run.uuid);
+  assert.equal(t.total, long.trim().length);
+  assert.equal(t.text.length, 60_000);
+  assert.equal(t.full, long.trim());
+  assert.equal(await eng.promptText(run.sessionId, 'not-a-real-id'), null);
+  eng.stop(); fs.rmSync(dir, { recursive: true });
+});

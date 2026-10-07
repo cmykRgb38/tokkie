@@ -121,7 +121,7 @@ export function planView(root, api) {
   const runsHead = el('div', { class: 'row' }, el('span', { class: 'label', text: 'Recent runs' }), el('span', { class: 'muted', text: 'click one to see the full prompt' }));
   const liveBox = el('div'), listBox = el('div', { class: 'runlist' });
   runsBox.replaceChildren(runsHead, liveBox, listBox);
-  const opened = new Set(), texts = new Map();
+  const opened = new Set(), texts = new Map(), fulls = new Map();
   let liveKey = '';
 
   function renderLive(s) {
@@ -157,7 +157,7 @@ export function planView(root, api) {
     const stop = (fn) => async (e) => { e.stopPropagation(); await fn(); };
     const full = el('div', { class: 'rfull', tabindex: '0', text: texts.get(id) || (r.hasText ? 'Loading…' : r.preview || '') });
     const actions = el('div', { class: 'ractions' },
-      el('button', { class: 'btn sm', type: 'button', text: 'Copy prompt', onclick: stop(async () => { await api.copyText(texts.get(id) || r.preview || ''); note('Prompt copied.'); }) }),
+      el('button', { class: 'btn sm', type: 'button', text: 'Copy prompt', onclick: stop(async () => { const t = fulls.get(id) || texts.get(id) || r.preview || ''; await api.copyText(t); note(`Prompt copied (${t.length.toLocaleString()} characters).`); }) }),
       canOpen ? el('button', { class: 'btn sm quiet', type: 'button', text: 'Open in Claude', title: 'Opens this conversation in the Claude app, with the prompt copied so ⌘F ⌘V finds it', onclick: stop(async () => {
         // Claude can open the conversation, not a message in it: copy the prompt's first line so ⌘F ⌘V finds it.
         const find = r.find || (r.preview || '').slice(0, 60);
@@ -180,7 +180,10 @@ export function planView(root, api) {
       runsKey = ''; renderRuns(S);
       if (opened.has(id) && !texts.has(id) && r.hasText) {
         const t = await api.promptText(r.sessionId, r.uuid);
-        texts.set(id, t || r.preview || '(this prompt is no longer in Claude’s logs)');
+        // very long prompts: show the first part in the scroll box; Copy prompt still copies all of it
+        const more = t && t.total > t.text.length ? `\n\n… ${(t.total - t.text.length).toLocaleString()} more characters — use Copy prompt for the whole thing.` : '';
+        texts.set(id, t ? t.text + more : r.preview || '(this prompt is no longer in Claude’s logs)');
+        if (t) fulls.set(id, t.full);
         runsKey = ''; renderRuns(S);
       }
     };

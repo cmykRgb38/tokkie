@@ -22,6 +22,35 @@ const { paceOf } = require('./pace');
  * Everything the UI needs, with no Electron dependency (so it is testable and reusable).
  * Emits 'change' (data changed), 'turn-end' ({duration, tokens}) for live-finished turns.
  */
+const SHOW_MAX = 60_000;      // characters shown in the panel (a scroll box); longer prompts say how much more there is
+const COPY_MAX = 1_000_000;   // "Copy prompt" copies the whole thing, up to this
+
+/** The full line of a log file that contains `needle`, read in chunks (never the whole file at once). */
+async function findLine(file, needle) {
+  const CHUNK = 1 << 20;
+  let fh;
+  try {
+    fh = await fs.promises.open(file, 'r');
+    const size = (await fh.stat()).size;
+    let pos = 0, carry = Buffer.alloc(0);
+    while (pos < size) {
+      const buf = Buffer.allocUnsafe(Math.min(CHUNK, size - pos));
+      const { bytesRead } = await fh.read(buf, 0, buf.length, pos);
+      if (!bytesRead) break;
+      pos += bytesRead;
+      const data = carry.length ? Buffer.concat([carry, buf.subarray(0, bytesRead)]) : buf.subarray(0, bytesRead);
+      const cut = data.lastIndexOf(10);
+      const whole = cut < 0 ? Buffer.alloc(0) : data.subarray(0, cut);
+      carry = Buffer.from(cut < 0 ? data : data.subarray(cut + 1));
+      if (carry.length > 64 << 20) carry = Buffer.alloc(0);          // a pathological single line: give up on it
+      const at = whole.indexOf(needle);
+      if (at >= 0) { const a = whole.lastIndexOf(10, at) + 1, b = whole.indexOf(10, at); return whole.subarray(a, b < 0 ? whole.length : b).toString('utf8'); }
+    }
+    if (carry.includes(needle)) return carry.toString('utf8');
+  } catch { /* file gone */ } finally { if (fh) await fh.close().catch(() => {}); }
+  return null;
+}
+
 const startOfDay = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
 class Engine extends EventEmitter {
@@ -279,17 +308,17 @@ class Engine extends EventEmitter {
    * The full text of a past prompt, read on demand from the conversation log it came from (Tokkie keeps only a
    * preview). Only files Tokkie itself is reading are opened, and only the line with that prompt's id is returned.
    */
-  promptText(sessionId, uuid) {
+  async promptText(sessionId, uuid) {
     const s = this.store.samples.find((x) => x.sessionId === sessionId && x.uuid === uuid && x.file);
-    if (!s || !this.tailer.files.has(s.file)) return null;
+    if (!s || !this.tailer.files.has(s.file) || !/^[A-Za-z0-9-]{1,64}$/.test(uuid)) return null;
+    // Logs of long conversations can be tens of MB: scan in 1 MB chunks, off the UI path, for the one line we need.
+    const line = await findLine(s.file, `"uuid":"${uuid}"`);
+    if (!line) return null;
     try {
-      const data = fs.readFileSync(s.file, 'utf8');
-      const i = data.indexOf(`"uuid":"${uuid}"`);
-      if (i < 0) return null;
-      const a = data.lastIndexOf('\n', i) + 1, b = data.indexOf('\n', i);
-      const d = JSON.parse(data.slice(a, b < 0 ? undefined : b));
+      const d = JSON.parse(line);
       const { textOf } = require('./parser');
-      return textOf(d.message && d.message.content).trim().slice(0, 100_000);
+      const full = textOf(d.message && d.message.content).trim();
+      return { text: full.slice(0, SHOW_MAX), total: full.length, full: full.slice(0, COPY_MAX) };
     } catch { return null; }
   }
 
