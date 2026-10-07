@@ -132,10 +132,22 @@ export function planView(root, api) {
         chips.push(el('span', { class: 'acc', 'data-k': a, title: `Estimated ${fmtRange(r.est.dur.p25, r.est.dur.p75)}` }, `time ${ACC_TXT[a]}`));
         if (b) chips.push(el('span', { class: 'acc', 'data-k': b, title: `Estimated ${fmtTokens(r.est.head.p25)}–${fmtTokens(r.est.head.p75)} tokens` }, `tokens ${ACC_TXT[b]}`));
       }
-      return el('div', { class: 'run' },
-        el('div', { class: 'row' }, el('span', { class: 'muted', text: `${fmtDur((s.now - r.start) / 1000)} ago · ${r.chars.toLocaleString()} chars` }), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
-        el('div', { class: 'rtok', text: tok || 'tokens not recorded' }),
-        chips.length ? el('div', { class: 'chips2' }, el('span', { class: 'muted', text: 'estimate:' }), chips) : el('div', { class: 'muted', text: 'not estimated beforehand' }));
+      const project = r.cwd ? r.cwd.split(/[\\/]/).filter(Boolean).pop() : '';
+      const where = r.source === 'cowork' ? 'Cowork' : project;
+      // Claude Code runs can be reopened in the Claude app; Cowork has no such link, so those just show the prompt.
+      const canOpen = r.source !== 'cowork' && /^[0-9a-f-]{36}$/i.test(r.sessionId || '');
+      const resumeCmd = canOpen ? `${r.cwd ? `cd "${r.cwd}" && ` : ''}claude --resume ${r.sessionId}` : '';
+      const actions = canOpen ? el('div', { class: 'ractions' },
+        el('button', { class: 'btn sm', type: 'button', text: 'Open in Claude', title: 'Opens this conversation in the Claude desktop app', onclick: async (e) => { e.stopPropagation(); const res = await api.openSession(r.sessionId); if (!res || !res.ok) note('Couldn’t open Claude — is the desktop app installed?'); } }),
+        el('button', { class: 'btn sm quiet', type: 'button', text: 'Copy terminal command', title: resumeCmd, onclick: async (e) => { e.stopPropagation(); await api.copyText(resumeCmd); note('Copied — paste it in a terminal to continue this conversation.'); } })) : null;
+      const msg = el('div', { class: 'muted', hidden: true, style: 'color:var(--good)' });
+      const note = (t) => { msg.textContent = t; msg.hidden = false; setTimeout(() => { msg.hidden = true; }, 4000); };
+      return el('div', { class: 'run' + (canOpen ? ' openable' : ''), title: canOpen ? 'Click to open this conversation in Claude' : '', onclick: canOpen ? () => actions.querySelector('button').click() : null },
+        el('div', { class: 'row' }, el('span', { class: 'muted', text: `${fmtDur((s.now - r.start) / 1000)} ago${where ? ` · ${where}` : ''}` }), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
+        r.preview ? el('div', { class: 'rprompt', text: `“${r.preview}${r.chars > 140 ? '…' : ''}”` }) : null,
+        el('div', { class: 'rtok', text: (tok || 'tokens not recorded') + (r.usd != null ? ` · $${r.usd.toFixed(2)}` : '') }),
+        chips.length ? el('div', { class: 'chips2' }, el('span', { class: 'muted', text: 'estimate:' }), chips) : el('div', { class: 'muted', text: 'not estimated beforehand' }),
+        actions, msg);
     });
     runsBox.replaceChildren(head, ...rows);
   }

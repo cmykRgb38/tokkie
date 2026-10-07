@@ -201,6 +201,11 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(500);
       let hk; try { hk = await js(`(async () => { const s = await window.tokkie.getState(); return JSON.stringify(s.hotkey); })()`); hk = JSON.parse(hk); } catch (e) { hk = { err: e.message }; }
       ok('the estimate shortcut is registered and matches what the UI shows', hk && hk.ok === true && hk.accelerator === 'CommandOrControl+Alt+Shift+L', JSON.stringify(hk));
+      await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(600);
+      await js(`document.getElementById('tab-plan').click()`); await wait(600);
+      const runs = await js(`[...document.querySelectorAll('#view-plan .run')].slice(0,3).map(r=>({prompt:r.querySelector('.rprompt')?.textContent||'',open:r.classList.contains('openable'),btn:r.querySelector('.ractions button')?.textContent||''}))`);
+      ok('recent runs show the prompt and can reopen the conversation', runs.length === 0 || runs.some((r) => r.prompt.length > 2 && r.open && r.btn === 'Open in Claude'), JSON.stringify(runs).slice(0, 300));
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(400);
       ok('no renderer console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
     } catch (e) { ok('e2e harness threw', false, e.stack); }
     const failed = results.filter((r) => !r[1]).length;

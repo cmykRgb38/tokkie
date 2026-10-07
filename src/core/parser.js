@@ -53,7 +53,9 @@ function parseLine(line) {
     if (NOT_A_PROMPT.some((re) => re.test(text))) return null;
     const hasImage = Array.isArray(m.content) && m.content.some((b) => b && b.type === 'image');
     if (!text && !hasImage) return null;
-    return { kind: 'prompt', ts, sessionId, chars: text.length, hint: complexityHint(text), uuid: d.uuid || '' };
+    // a one-line preview (local only) so a run can be recognised later, and where it ran (to reopen it)
+    const preview = text.replace(/\s+/g, ' ').slice(0, 140) || (hasImage ? '[image]' : '');
+    return { kind: 'prompt', ts, sessionId, chars: text.length, hint: complexityHint(text), uuid: d.uuid || '', preview, cwd: typeof d.cwd === 'string' ? d.cwd : '' };
   }
   return null;
 }

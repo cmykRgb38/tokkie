@@ -82,3 +82,17 @@ test('snapshot of 150k messages stays cheap', () => {
   for (let i = 0; i < 5; i++) { const t = process.hrtime.bigint(); s.aggregate(now); best = Math.min(best, Number(process.hrtime.bigint() - t) / 1e6); }
   assert.ok(best < 400, `aggregate took ${best.toFixed(0)}ms at best`);
 });
+
+test('a run remembers the prompt preview and folder, and fills them into runs saved by older versions', () => {
+  const { Store } = require('../src/core/store');
+  const { parseLine } = require('../src/core/parser');
+  const { U, A } = require('./helpers');
+  const st = new Store({ now: () => 2e12 });
+  st.addSample({ sessionId: 's1', start: 1e12, chars: 20, duration: 5, tokens: 1 });     // saved by an old version
+  const p = parseLine(JSON.parse(U(1e12, 'Fix the   login\nbug please')) && { ...JSON.parse(U(1e12, 'Fix the   login\nbug please')), cwd: '/work/app' });
+  assert.equal(p.preview, 'Fix the login bug please'); assert.equal(p.cwd, '/work/app');
+  st.ingest({ ...p, source: 'code' });
+  st.ingest(parseLine(A(1e12 + 5000, 'm1', { stop: 'end_turn' })));
+  const s = st.samples.find((x) => x.start === 1e12);
+  assert.equal(s.preview, 'Fix the login bug please'); assert.equal(s.cwd, '/work/app'); assert.equal(s.source, 'code');
+});

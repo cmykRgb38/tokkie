@@ -283,6 +283,13 @@ function setupIpc() {
   ipcMain.on('ui:estimateClipboard', () => estimateClipboard());
   ipcMain.on('ui:quit', () => app.quit());
   ipcMain.on('ui:hide', () => { win?.hide(); refreshTray(); });
+  // Reopen a Claude Code conversation: the Claude app's own resume link (session ids are UUIDs; nothing else passes).
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  ipcMain.handle('ui:openSession', async (_e, id) => {
+    if (!UUID.test(String(id))) return { ok: false };
+    try { await shell.openExternal(`claude://resume?session=${id}`); return { ok: true }; } catch { return { ok: false }; }
+  });
+  ipcMain.handle('ui:copyText', async (_e, t) => { try { await clipboard.writeText(String(t).slice(0, 2000)); lastClipboard = String(t).slice(0, 2000); return { ok: true }; } catch { return { ok: false }; } });
   ipcMain.on('ui:openExternal', (_e, url) => { if (/^https:\/\/[^\s]+$/.test(String(url))) shell.openExternal(url); });
   ipcMain.on('ui:revealSettings', () => { shell.showItemInFolder(settings.file); });
 }

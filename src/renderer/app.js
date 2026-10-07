@@ -36,6 +36,9 @@ const api = {
   emote: (m) => pet.emote(m, m === 'sleep' ? 5000 : 3500),
   dismissWelcome: () => bridge.setSettings({ onboarded: true }),
   openTab: (t) => setMode('expanded', t),
+  openSession: (id) => bridge.ui.openSession(id),
+  copyText: (t) => bridge.ui.copyText(t),
+  platform: () => (S ? S.platform : ''),
   hide: () => bridge.ui.hide(), quit: () => bridge.ui.quit(),
 };
 const views = {

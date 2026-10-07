@@ -272,3 +272,10 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .dline .dv { margin-left: auto; font-weight: 650; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
 .dline .dv[data-k="good"] { color: var(--good); } .dline .dv[data-k="warn"] { color: var(--warn); } .dline .dv[data-k="bad"] { color: var(--bad); }
 .dline .dot { width: 7px; height: 7px; }
+
+/* Recent runs: the prompt you sent, and a way back to that conversation */
+.run .rprompt { font-size: 12.5px; color: var(--ink-2); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin: 2px 0; user-select: text; }
+.run.openable { cursor: pointer; transition: border-color .15s, background .15s; }
+.run.openable:hover { box-shadow: inset 0 0 0 1px var(--accent); }
+.run .ractions { display: none; gap: 6px; margin-top: 6px; }
+.run.openable:hover .ractions, .run.openable:focus-within .ractions { display: flex; }

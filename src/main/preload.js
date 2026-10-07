@@ -28,5 +28,7 @@ contextBridge.exposeInMainWorld('tokkie', {
     estimateClipboard: () => ipcRenderer.send('ui:estimateClipboard'),
     ready: () => ipcRenderer.send('ui:ready'),
     band: (b) => ipcRenderer.send('ui:band', b),
+    openSession: (id) => ipcRenderer.invoke('ui:openSession', id),
+    copyText: (t) => ipcRenderer.invoke('ui:copyText', t),
   },
 });
