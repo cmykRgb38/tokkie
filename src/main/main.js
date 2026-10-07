@@ -58,8 +58,9 @@ function snapshot() {
 let bandLast = '', bandAt = 0;
 function writeBand(b) {
   try {
-    const clean = { show: !!(b && b.show), alert: b && typeof b.alert === 'string' ? b.alert.slice(0, 120) : '',
-      items: (b && Array.isArray(b.items) ? b.items : []).slice(0, 10).map((x) => ({ label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '' })) };
+    const avatar = b && typeof b.avatar === 'string' && /^<svg[^]*<\/svg>$/.test(b.avatar) && b.avatar.length < 20000 && !/<script|on\w+=/i.test(b.avatar) ? b.avatar : '';
+    const clean = { show: !!(b && b.show), alert: b && typeof b.alert === 'string' ? b.alert.slice(0, 120) : '', avatar,
+      items: (b && Array.isArray(b.items) ? b.items : []).slice(0, 10).map((x) => ({ k: String(x.k || '').slice(0, 16), label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '' })) };
     const key = JSON.stringify(clean), now = Date.now();
     if (key === bandLast && now - bandAt < 30e3) return;          // rewrite unchanged content only to keep it fresh
     if (!clean.show && bandLast && !JSON.parse(bandLast).show && now - bandAt < 300e3) return;

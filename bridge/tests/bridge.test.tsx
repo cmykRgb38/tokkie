@@ -48,13 +48,15 @@ test('draws Tokkie’s Dock above the prompt when Tokkie asks for it, and nothin
   mock.clock(on, { now: 1_900_000_000_000 })
   const files = fakeHost(on, { cost: 1, limits: [] })
   const BAND = '/private/tmp/tokkie-bridge-test/.tokkie/band.json'
-  files[BAND] = JSON.stringify({ updatedAt: 1_900_000_000_000 - 1000, show: true, alert: 'Not enough left for this prompt', items: [{ label: 'Usage', value: '54% · $107/200', tone: 'warn' }, { label: 'Cache', value: '42m left' }] })
+  files[BAND] = JSON.stringify({ updatedAt: 1_900_000_000_000 - 1000, show: true, alert: 'Not enough left for this prompt', items: [{ k: 'usage', label: 'Usage', value: '54% · $107/200', tone: 'warn' }, { k: 'cache', label: 'Cache', value: '42m left' }], avatar: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><rect width="1" height="1" fill="#fff"/></svg>' })
   await $.session.start({ source: 'startup', cwd: '/work' } as never)
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: 'tokkie-bridge', surface, component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
     expect(await ui.find({ type: 'Text', text: /54% · \$107\/200/ } as never)).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /Not enough left/ } as never)).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /no such text/ } as never)).toBeUndefined()
+    if (surface === 'desktop') expect(await ui.find({ type: 'Svg' } as never)).toBeDefined()     // icons + the pet avatar
+    else expect(await ui.find({ type: 'Text', text: /◔/ } as never)).toBeDefined()               // glyphs in the terminal
     await ui.unmount()
   }
 })

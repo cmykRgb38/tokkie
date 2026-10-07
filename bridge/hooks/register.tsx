@@ -91,15 +91,35 @@ async function refreshBand($: Engine) {
     const fresh = Number.isFinite(j.updatedAt) && (await $.clock.now()) - j.updatedAt < BAND_STALE_MS
     if (fresh && j.show === true && Array.isArray(j.items)) {
       const items: BandItem[] = j.items.slice(0, 10).filter((x: any) => x && typeof x.label === 'string' && typeof x.value === 'string')
-        .map((x: any) => ({ label: x.label.slice(0, 24), value: x.value.slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '' }))
-      next = { items, alert: typeof j.alert === 'string' && j.alert ? j.alert.slice(0, 120) : undefined }
+        .map((x: any) => ({ k: typeof x.k === 'string' ? x.k.slice(0, 16) : '', label: x.label.slice(0, 24), value: x.value.slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '' }))
+      const avatar = typeof j.avatar === 'string' && j.avatar.startsWith('<svg') && j.avatar.length < 20000 ? j.avatar : undefined
+      next = { items, alert: typeof j.alert === 'string' && j.alert ? j.alert.slice(0, 120) : undefined, avatar }
     }
   } catch { /* no file: Tokkie isn't showing a bar */ }
   const prev = await read($, band)
   if (JSON.stringify(prev) !== JSON.stringify(next)) await update($, band, () => next)
 }
 
-const TONE: Record<string, string> = { good: 'green', warn: 'yellow', bad: 'red' }
+// Chip colours (border + value), and a neutral for chips with nothing to flag.
+const TONE: Record<string, string> = { good: '#4fc98a', warn: '#e8b931', bad: '#f06a5f' }
+const NEUTRAL = '#6b6b78'
+const INK = '#b9b9c6'
+
+// 24×24 line icons (desktop / editor / mobile draw them; the terminal gets a glyph instead).
+const ICON_PATHS: Record<string, string> = {
+  usage: '<path d="M4.5 18a9 9 0 1 1 15 0"/><path d="M12 14l4-5"/>',
+  pace: '<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
+  status: '<circle cx="12" cy="12" r="8.5"/><path d="M8 12.5l2.8 2.8L16.5 9"/>',
+  tokens: '<path d="M5 19V11M10 19V6M15 19v-9M20 19V4"/>',
+  lastPrompt: '<path d="M5 5h14v10H10l-5 4z"/><path d="M12 7.5v5M10.2 8.6c0-.7.8-1.1 1.8-1.1s1.8.5 1.8 1.2-.8 1-1.8 1.1-1.8.5-1.8 1.2.8 1.1 1.8 1.1 1.8-.4 1.8-1.1"/>',
+  context: '<path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16l8 4 8-4"/>',
+  cache: '<circle cx="12" cy="13" r="7.5"/><path d="M12 9.5V13l2.5 1.8M10 3h4"/>',
+  agents: '<rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9.5 13h0M14.5 13h0"/>',
+  alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2h0"/>',
+}
+const GLYPH: Record<string, string> = { usage: '◔', pace: '↯', status: '✓', tokens: '▮', lastPrompt: '$', context: '≡', cache: '◷', agents: '⚙', alert: '!' }
+const icon = (k: string, color: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON_PATHS[k] || ICON_PATHS.status}</svg>`
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -137,18 +157,31 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const b = await read($, band)
     if (e.props.hasSurvey || !b || !b.items.length) return next(e)
-    const { Box, Text } = $.ui.resolve(e)
+    const table = $.ui.resolve(e) as any
+    const { Box, Text } = table
+    const Svg = e.surface === 'terminal' ? null : (table.Svg as any)   // the terminal has no Svg: glyphs there instead
+    const chip = (key: string, k: string, value: string, tone: string | undefined, label: string) => {
+      const color = tone ? TONE[tone] : undefined
+      return Svg ? (
+        <Box key={key} flexDirection="row" alignItems="center" columnGap={1} borderStyle="round" borderColor={color || NEUTRAL} paddingX={1}>
+          <Svg source={icon(k, color || INK)} alt={label} width={14} height={14} />
+          <Text bold color={color} wrap="truncate">{value}</Text>
+        </Box>
+      ) : (
+        <Text key={key} wrap="truncate"><Text color={color || NEUTRAL}>{GLYPH[k] || '•'} </Text><Text bold color={color}>{value}</Text></Text>
+      )
+    }
     return (
-      <Box flexDirection="column">
-        {b.alert ? <Text color="red" bold wrap="truncate">⚠ {b.alert}</Text> : null}
-        <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
-          <Text bold>Tokkie</Text>
-          {b.items.map((it, i) => (
-            <Text key={String(i)} wrap="truncate">
-              <Text dimColor>{it.label} </Text>
-              <Text bold color={it.tone ? TONE[it.tone] : undefined}>{it.value}</Text>
-            </Text>
-          ))}
+      <Box flexDirection="column" rowGap={Svg ? 1 : 0}>
+        {b.alert ? (
+          <Box flexDirection="row" alignItems="center" columnGap={1}>
+            {Svg ? <Svg source={icon('alert', TONE.bad as string)} alt="Warning" width={14} height={14} /> : <Text color={TONE.bad}>!</Text>}
+            <Text color={TONE.bad} bold wrap="truncate">{b.alert}</Text>
+          </Box>
+        ) : null}
+        <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={Svg ? 1 : 2} rowGap={Svg ? 1 : 0}>
+          {Svg && b.avatar ? <Svg source={b.avatar} alt="Tokkie" width={22} height={22} /> : <Text bold>Tokkie</Text>}
+          {b.items.map((it, i) => chip(String(i), it.k, it.value, it.tone, it.label))}
         </Box>
       </Box>
     )

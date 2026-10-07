@@ -251,6 +251,22 @@ function checkFit(S) {
   }
   lastNextFit = st;
 }
+/** Your pet as a tiny crisp SVG, for the Claude bar (cropped to the sprite; redrawn only when the pet or its form changes). */
+let avatarKey = '', avatarSvg = '';
+function petAvatar() {
+  const key = `${seedShown}:${pet.form.stage}:${pet.form.fat}`;
+  if (key === avatarKey || !pet.spec) return avatarSvg;
+  const f = M.compose(pet.spec, { frame: 0, bob: 0, eye: 'open', mouth: 'smile', look: { x: 0, y: 0 } });
+  const px = [...f.outline, ...f.cells];
+  if (!px.length) return avatarSvg;
+  const xs = px.map((c) => c.x), ys = px.map((c) => c.y);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1, side = Math.max(w, h);
+  const ox = x0 - (side - w) / 2, oy = y0 - (side - h);           // square, feet on the bottom edge
+  avatarSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${ox} ${oy} ${side} ${side}" shape-rendering="crispEdges">` + px.map((c) => `<rect x="${c.x}" y="${c.y}" width="1" height="1" fill="${c.c}"/>`).join('') + '</svg>';
+  avatarKey = key;
+  return avatarSvg;
+}
+
 function bandAlert(S) {
   if (fitAlert && Date.now() < fitAlert.until) return `${fitAlert.title} — ${fitAlert.sub}`;
   const nf = S.nextFit;
@@ -320,7 +336,8 @@ function render() {
   const lines = S.settings.layout === 'dock' ? dockLines(S, d) : null;
   if (lines) renderDock(lines);
   applyLayout();
-  bridge.ui.band?.({ show: !!lines && place === 'claude', items: (lines || []).map((l) => ({ label: l.label, value: l.value, tone: l.tone })), alert: bandAlert(S) });
+  const inClaude = !!lines && place === 'claude';
+  bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: l.label, value: l.value, tone: l.tone })), alert: bandAlert(S), avatar: inClaude ? petAvatar() : '' });
   chip.textContent = d.chipText; chip.dataset.k = d.chipK;
 
   if (mode === 'expanded') { for (const t of TABS) if (t === tab) views[t].update(S); }
