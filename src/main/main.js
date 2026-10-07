@@ -27,7 +27,20 @@ if (process.env.TOKKIE_USERDATA) app.setPath('userData', process.env.TOKKIE_USER
 let collect = () => {};
 try { require('v8').setFlagsFromString('--expose-gc'); const g = require('vm').runInNewContext('gc'); collect = () => { g(); g(); }; } catch { /* optional */ }
 const isMac = process.platform === 'darwin';
-const SIGNATURE = `you:${os.userInfo().username}`;
+// Your own pet's seed. Up to 1.0.18 it was just the username, so two people with the same login name (common on
+// company laptops) got the same pet. New installs add a random id; existing installs keep the pet they have.
+const LEGACY_SIGNATURE = `you:${os.userInfo().username}`;
+let SIGNATURE = LEGACY_SIGNATURE;
+function ownSeed(settings) {
+  let seed = settings.get('seed');
+  if (!seed) {
+    const m = settings.get('monsters') || {};
+    const existing = m.active || (m.saved || []).length;            // installed before: keep the pet they know
+    seed = existing ? LEGACY_SIGNATURE : `${LEGACY_SIGNATURE}:${require('crypto').randomBytes(6).toString('hex')}`;
+    settings.set({ seed });
+  }
+  return seed;
+}
 const STATE_MS = 1000;
 
 let win = null, tray = null, settings = null, engine = null;
@@ -306,6 +319,7 @@ else {
     if (isMac) app.dock?.hide();
     legacy.migrate({ appData: app.getPath('appData'), userData: app.getPath('userData'), home: os.homedir(), hookSource: path.join(__dirname, '..', '..', 'scripts', 'statusline-hook.js'), skipUserData: !!process.env.TOKKIE_USERDATA });
     settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
+    SIGNATURE = ownSeed(settings);
     if (!settings.get('monsters').active) settings.set({ monsters: { ...settings.get('monsters'), active: SIGNATURE } });
     engine = new Engine({ settings });
     setupIpc();

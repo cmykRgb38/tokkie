@@ -57,7 +57,15 @@ const MOUTHS = ['smile', 'fangs', 'wide'];
 const SYL_A = ['Blo', 'Zib', 'Mun', 'Gor', 'Pix', 'Fuz', 'Nib', 'Quo', 'Dra', 'Bop', 'Wum', 'Tok', 'Yip', 'Glo', 'Snu', 'Krim', 'Plo', 'Zap', 'Mog', 'Fli', 'Bru', 'Chi', 'Nok'];
 const SYL_B = ['rp', 'bit', 'mo', 'zle', 'nk', 'bo', 'ggle', 'ps', 'rb', 'lo', 'ffin', 'ddy', 'mble', 'nt', 'wl', 'ck', 'zo'];
 
-function makeName(r) { return pick(r, SYL_A) + pick(r, SYL_B); }
+const SYL_M = ['a', 'i', 'o', 'u', 'ee', 'oo', 'ar', 'el', 'im', 'on', 'ub', 'ix'];
+/** Seeds from Tokkie ≤1.0.18 (the username signature, and rerolls 'r' + 8 chars) keep the name they always had. */
+const isLegacySeed = (seed) => /^you:[^:]*$/.test(seed) || /^r[a-z0-9]{8}$/.test(seed);
+/** ~391 names for legacy seeds; newer seeds may also get a middle syllable: ~5,000 names. */
+function makeName(r, seed) {
+  const a = pick(r, SYL_A), b = pick(r, SYL_B);
+  if (isLegacySeed(String(seed))) return a + b;
+  return r() < 0.6 ? a + pick(r, SYL_M) + b : a + b;
+}
 
 /** Build the creature description for a seed. Deterministic. */
 function generate(seed) {
@@ -77,7 +85,7 @@ function generate(seed) {
   const deltas = SHAPES[shapeKey].delta(bodyH);
   const rows = deltas.map((d) => Math.max(2, hw + d));
 
-  return { seed: String(seed), name: makeName(r), palette, shape: shapeKey, hw, bodyH, y0, rows, top, topH, arms, eyes, marks, mouth, legsN, legLen, eyeGap, seedMarks,
+  return { seed: String(seed), name: makeName(r, seed), palette, shape: shapeKey, hw, bodyH, y0, rows, top, topH, arms, eyes, marks, mouth, legsN, legLen, eyeGap, seedMarks,
     traits: [SHAPES[shapeKey].name, top !== 'none' ? ({ ears: 'Eared', horns: 'Horned', antenna: 'Antennaed', twin: 'Twin-antenna', tuft: 'Tufted' }[top]) : null,
       ({ cyclops: 'Cyclops', trio: 'Three-eyed', visor: 'Visored' }[eyes] || null), legsN === 4 ? 'Four-legged' : 'Two-legged'].filter(Boolean) };
 }

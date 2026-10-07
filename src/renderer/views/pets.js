@@ -34,7 +34,7 @@ export function petsView(root, api) {
 
   let S = null;
   const setM = (patch) => api.setSettings({ monsters: { ...S.settings.monsters, ...patch } });
-  reroll.addEventListener('click', () => setM({ active: 'r' + Math.random().toString(36).slice(2, 10) }));
+  reroll.addEventListener('click', () => setM({ active: 'n' + Math.random().toString(36).slice(2, 12) }));
   save.addEventListener('click', () => { const { active, saved } = S.settings.monsters; if (saved.length < MAX && !saved.includes(active) && active !== S.signature) setM({ saved: [...saved, active] }); });
 
   function slot(seed, tag, deletable) {

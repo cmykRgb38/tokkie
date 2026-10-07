@@ -63,3 +63,15 @@ test('expressions actually change the face (angry, bored, wide, love, closed all
     for (const eye of ['angry', 'bored', 'wide', 'love', 'closed']) assert.notEqual(JSON.stringify(M.compose(spec, { eye }).cells), base, `${spec.eyes}/${eye}`);
   }
 });
+
+test('pets made before 1.0.19 keep their names; new pets draw from a much bigger name pool', () => {
+  const M = require('../src/core/monster');
+  assert.equal(M.generate('you:chuabh').name, 'Chimble');                         // a real user's pet: unchanged
+  const legacy = new Set(), fresh = new Set();
+  for (let i = 0; i < 20000; i++) { legacy.add(M.generate('you:u' + i).name); fresh.add(M.generate(`you:u:${i.toString(16)}`).name); }
+  assert.ok(legacy.size <= 391);
+  assert.ok(fresh.size > 2000, String(fresh.size));
+  // same username on two machines → different pets once each install has its own id
+  const a = M.generate('you:admin:1a2b3c4d5e6f'), b = M.generate('you:admin:9f8e7d6c5b4a');
+  assert.notDeepEqual([a.name, a.palette.body, a.shape, a.top, a.eyes], [b.name, b.palette.body, b.shape, b.top, b.eyes]);
+});
