@@ -41,6 +41,7 @@ const api = {
   copyText: (t) => bridge.ui.copyText(t),
   promptText: (sid, uuid) => bridge.ui.promptText(sid, uuid),
   history: () => bridge.ui.history(),
+  redeem: (code) => bridge.ui.redeem(code),
   platform: () => (S ? S.platform : ''),
   hide: () => bridge.ui.hide(), quit: () => bridge.ui.quit(),
 };

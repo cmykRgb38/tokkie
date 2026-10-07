@@ -54,7 +54,7 @@ Tokkie auto-detects Claude Code (`~/.claude`) and Cowork (the Claude desktop app
 | **Dock** | A card **below or above** the pet — or, with **Claude bar**, a one-line bar above Claude Code’s prompt box (drawn by the bridge), while the pet stays on your desktop. Lines: usage % (and `$X/200`), pace / run-out date, status, tokens today, last prompt cost, context, cache timer, agents — each switchable. **Pills** layout has its own picks. |
 | **Usage tab** | Plan limits, tokens, burn rate, sparkline. |
 | **Estimate tab** | Set "done by" (e.g. `6:30pm`). Paste a prompt, or select it all, **copy** it (⌘C), then press the shortcut from anywhere (default **⌘⌥⇧L / Ctrl+Alt+Shift+L**) — no need to open Tokkie first. |
-| **Pets tab** | Generate, save, switch monsters. Pick a **personality** (Cheerful, Playful, Sleepy, Grumpy, Shy). Tap any unlocked form to show it (e.g. back to Hatchling). Preview emotions. |
+| **Pets tab** | Generate, save, switch and remove pets (your first one too — and bring it back). **Album**: 35 species to discover (silhouettes until found), including 6 secret ones unlocked with codes. Pick a **personality**; tap an unlocked form to show it; preview emotions. |
 | **Settings** | Claude Code bridge, spend limit, layout + Dock lines, theme, size, shortcut, attention alerts, clipboard watch, notifications, launch at login. |
 
 ### Your real usage percentage (automatic)

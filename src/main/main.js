@@ -85,6 +85,19 @@ function writeBand(b) {
   } catch (e) { console.error('band write failed', e.message); }
 }
 
+/** Remember the species of every pet you've had (own, active, saved) for the album. */
+function noteAlbum() {
+  try {
+    const m = settings.get('monsters'), album = { ...(settings.get('album') || {}) };
+    let changed = false;
+    for (const seed of [SIGNATURE, m.active, ...(m.saved || [])].filter(Boolean)) {
+      const k = Monster.speciesOf(Monster.generate(seed));
+      if (!album[k]) { album[k] = seed; changed = true; }
+    }
+    if (changed) settings.set({ album });
+  } catch { /* cosmetic */ }
+}
+
 function send(channel, payload) { if (win && !win.isDestroyed()) win.webContents.send(channel, payload); }
 
 function clampToWork(b) {
@@ -225,7 +238,7 @@ function setupIpc() {
       const prev = settings.get('hotkey');
       if (!registerHotkey(clean.hotkey)) { registerHotkey(prev); delete clean.hotkey; out.ok = false; out.error = 'That shortcut is taken or invalid.'; }
     }
-    if ('monsters' in clean) { const m = clean.monsters; clean.monsters = { active: String(m.active || SIGNATURE), saved: (m.saved || []).map(String).slice(0, 5) }; }
+    if ('monsters' in clean) { const m = clean.monsters; clean.monsters = { active: String(m.active || SIGNATURE).slice(0, 80), saved: (m.saved || []).map((x) => String(x).slice(0, 80)).slice(0, 5), hideOwn: !!m.hideOwn }; }
     if ('bufferMin' in clean) clean.bufferMin = Math.max(0, Math.min(120, Number(clean.bufferMin) || 0));
     if ('fallbackBudget5h' in clean) clean.fallbackBudget5h = Math.max(0, Number(clean.fallbackBudget5h) || 0);
     if ('scale' in clean) clean.scale = [5, 6, 8].includes(Number(clean.scale)) ? Number(clean.scale) : 6;
@@ -233,7 +246,7 @@ function setupIpc() {
     settings.set(clean);
     if ('alwaysOnTop' in clean && win) win.setAlwaysOnTop(!!clean.alwaysOnTop, isMac ? 'floating' : 'screen-saver');
     if ('launchAtLogin' in clean && app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR) app.setLoginItemSettings({ openAtLogin: !!clean.launchAtLogin });
-    if ('monsters' in clean) refreshTray();
+    if ('monsters' in clean) { refreshTray(); noteAlbum(); }
     send('state', snapshot());
     return out;
   });
@@ -304,6 +317,19 @@ function setupIpc() {
     try { await shell.openExternal(`claude://resume?session=${id}`); return { ok: true }; } catch { return { ok: false }; }
   });
   ipcMain.handle('runs:history', () => engine.history());
+  // Secret codes → special pets. Wrong guesses are rate-limited so the codes can't be brute-forced from the UI.
+  let codeTries = [];
+  ipcMain.handle('pets:redeem', (_e, code) => {
+    const now = Date.now(); codeTries = codeTries.filter((t) => now - t < 60e3);
+    if (codeTries.length >= 10) return { ok: false, error: 'Too many tries — wait a minute.' };
+    const kind = require('../core/secrets').redeem(code);
+    if (!kind) { codeTries.push(now); return { ok: false, error: 'That code doesn’t unlock anything.' }; }
+    const seed = `sp:${kind}:${require('crypto').randomBytes(4).toString('hex')}`;
+    const m = settings.get('monsters');
+    settings.set({ monsters: { ...m, active: seed, saved: m.saved.length < 5 ? [...m.saved, seed] : m.saved } });
+    noteAlbum(); refreshTray(); send('state', snapshot());
+    return { ok: true, kind, seed, saved: m.saved.length < 5, name: Monster.generate(seed).name };
+  });
   ipcMain.handle('run:prompt', (_e, sid, uuid) => engine.promptText(String(sid), String(uuid)));
   ipcMain.handle('ui:copyText', async (_e, t) => { const v = String(t).slice(0, 1_000_000); try { await clipboard.writeText(v); lastClipboard = v; return { ok: true }; } catch { return { ok: false }; } });
   ipcMain.on('ui:openExternal', (_e, url) => { if (/^https:\/\/[^\s]+$/.test(String(url))) shell.openExternal(url); });
@@ -321,6 +347,7 @@ else {
     settings = new Settings(path.join(app.getPath('userData'), 'settings.json'));
     SIGNATURE = ownSeed(settings);
     if (!settings.get('monsters').active) settings.set({ monsters: { ...settings.get('monsters'), active: SIGNATURE } });
+    noteAlbum();
     engine = new Engine({ settings });
     setupIpc();
     createWindow();

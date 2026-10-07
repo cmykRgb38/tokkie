@@ -33,9 +33,14 @@ function makePalette(r) {
   const sat = int(r, 58, 78);
   const l = int(r, 56, 64);
   const accentHue = pick(r, [hue + 150, hue + 180, hue + 210, hue + 40]);
+  // Warm oranges shaded the usual way (toward yellow, darker) turn brown — and a brown pear looks like 💩.
+  // So warm pets shade toward red and get a plum outline: peach and coral, never brown.
+  const warm = ((hue % 360) + 360) % 360 < 56;
+  const shade = warm ? hsl(hue - 14, Math.min(85, sat + 8), Math.max(l, 63) - 8) : hsl(hue + 8, sat, l - 14);
+  const outline = warm ? hsl(hue - 40, 45, 22) : hsl(hue + 12, sat - 8, 17);
   return {
-    body: hsl(hue, sat, l), light: hsl(hue, sat - 10, l + 13), shade: hsl(hue + 8, sat, l - 14),
-    outline: hsl(hue + 12, sat - 8, 17), accent: hsl(accentHue, 72, 62), accentDark: hsl(accentHue, 60, 40),
+    body: hsl(hue, sat, warm ? Math.max(l, 63) : l), light: hsl(hue, sat - 10, (warm ? Math.max(l, 63) : l) + 13), shade,
+    outline, accent: hsl(accentHue, 72, 62), accentDark: hsl(accentHue, 60, 40),
     eye: '#fdfbf7', pupil: '#1d1722', mouth: hsl(hue + 10, 55, 16), tongue: '#ff8fa3', fang: '#fdfbf7', ground: 'rgba(0,0,0,0.18)',
   };
 }
@@ -61,10 +66,15 @@ const SYL_M = ['a', 'i', 'o', 'u', 'ee', 'oo', 'ar', 'el', 'im', 'on', 'ub', 'ix
 /** Seeds from Tokkie ≤1.0.18 (the username signature, and rerolls 'r' + 8 chars) keep the name they always had. */
 const isLegacySeed = (seed) => /^you:[^:]*$/.test(seed) || /^r[a-z0-9]{8}$/.test(seed);
 /** ~391 names for legacy seeds; newer seeds may also get a middle syllable: ~5,000 names. */
+// Syllables can collide into words nobody wants their pet called (it happened: "Bopoops").
+const RUDE = /poo|pee|ass|butt|fart|piss|shit|dick|dik|cum|fuk|fuck|fag|nig|tit|wank|crap|turd|bum|boob|nob|sex/i;
 function makeName(r, seed) {
   const a = pick(r, SYL_A), b = pick(r, SYL_B);
   if (isLegacySeed(String(seed))) return a + b;
-  return r() < 0.6 ? a + pick(r, SYL_M) + b : a + b;
+  const name = r() < 0.6 ? a + pick(r, SYL_M) + b : a + b;
+  if (!RUDE.test(name)) return name;
+  for (let i = 0; i < 20; i++) { const n = pick(r, SYL_A) + pick(r, SYL_B); if (!RUDE.test(n)) return n; }
+  return 'Tokkie';
 }
 
 /** Build the creature description for a seed. Deterministic. */
@@ -74,20 +84,62 @@ function generate(seed) {
   const shapeKey = pick(r, Object.keys(SHAPES));
   const hw = int(r, 4, 6);                    // body half-width (full = 2*hw+1)
   const bodyH = int(r, Math.min(7, Math.max(5, hw + 1)), 7);   // never flatter than it is wide: keeps every creature cute, not squashed
-  const top = pick(r, TOPS), arms = pick(r, ARMS), eyes = pick(r, EYES), marks = pick(r, MARKS), mouth = pick(r, MOUTHS);
+  let top = pick(r, TOPS); const arms = pick(r, ARMS), eyes = pick(r, EYES), marks = pick(r, MARKS), mouth = pick(r, MOUTHS);
   const legsN = pick(r, [2, 4, 4]);
   const legLen = int(r, 1, 2);
   const eyeGap = Math.min(hw - 2, int(r, 1, 3));
   const seedMarks = { spots: Array.from({ length: 3 }, () => [int(r, 1, hw - 1), int(r, 1, bodyH - 3)]) };
 
+  if (shapeKey === 'pear' && top === 'tuft') top = 'ears';      // a tufted pear reads as a swirl, i.e. 💩
   const topH = { none: 0, ears: 2, horns: 3, antenna: 3, twin: 3, tuft: 2, crown: 2 }[top];
   const y0 = GROUND - legLen - bodyH + 1;      // top row of the body
   const deltas = SHAPES[shapeKey].delta(bodyH);
   const rows = deltas.map((d) => Math.max(2, hw + d));
 
-  return { seed: String(seed), name: makeName(r, seed), palette, shape: shapeKey, hw, bodyH, y0, rows, top, topH, arms, eyes, marks, mouth, legsN, legLen, eyeGap, seedMarks,
+  const spec = { seed: String(seed), name: makeName(r, seed), palette, shape: shapeKey, hw, bodyH, y0, rows, top, topH, arms, eyes, marks, mouth, legsN, legLen, eyeGap, seedMarks,
     traits: [SHAPES[shapeKey].name, top !== 'none' ? ({ ears: 'Eared', horns: 'Horned', antenna: 'Antennaed', twin: 'Twin-antenna', tuft: 'Tufted' }[top]) : null,
       ({ cyclops: 'Cyclops', trio: 'Three-eyed', visor: 'Visored' }[eyes] || null), legsN === 4 ? 'Four-legged' : 'Two-legged'].filter(Boolean) };
+  const sp = /^sp:(\w+):/.exec(String(seed));
+  return sp && SPECIALS[sp[1]] ? SPECIALS[sp[1]].apply(spec, r) : spec;
+}
+
+// ---- special pets (unlocked with a secret code) ------------------------------------------------
+const RAINBOW = [0, 32, 52, 130, 200, 265, 300];
+const SPECIALS = {
+  rainbow: { title: 'Rainbow', apply: (s) => ({ ...s, special: 'rainbow', palette: { ...s.palette, outline: '#2a1d3a', accent: '#ffffff', accentDark: '#c9c2ff' }, marks: 'none', traits: ['Rainbow', ...s.traits] }) },
+  unicorn: { title: 'Unicorn', apply: (s, r) => {
+    const hue = pick(r, [300, 320, 270, 190, 340]);
+    const palette = { ...s.palette, body: hsl(hue, 70, 86), light: '#ffffff', shade: hsl(hue + 10, 45, 74), outline: hsl(hue + 20, 35, 38), accent: hsl(hue + 180, 70, 72), accentDark: hsl(hue + 180, 55, 55), mouth: hsl(hue, 40, 30) };
+    return { ...s, special: 'unicorn', palette, top: 'unicorn', topH: 4, marks: 'cheeks', traits: ['Unicorn', ...s.traits.filter((t) => !/Eared|Horned|Antennaed|Tufted|Twin/.test(t))] };
+  } },
+  golden: { title: 'Golden', apply: (s) => ({ ...s, special: 'golden', marks: 'spots', palette: { ...s.palette, body: '#f4c542', light: '#fff1b0', shade: '#c9921a', outline: '#5a3a06', accent: '#ffffff', accentDark: '#fff6cf', mouth: '#5a3a06' }, traits: ['Golden', ...s.traits] }) },
+  diamond: { title: 'Diamond', apply: (s) => ({ ...s, special: 'diamond', marks: 'none', palette: { ...s.palette, body: '#bff4ff', light: '#ffffff', shade: '#74c9e6', outline: '#24617d', accent: '#ffffff', accentDark: '#d6f7ff', mouth: '#24617d' }, traits: ['Diamond', ...s.traits] }) },
+  glass: { title: 'Glass', apply: (s) => ({ ...s, special: 'glass', marks: 'none', palette: { ...s.palette, body: '#cfe9ff59', light: '#ffffffb3', shade: '#9fcdf080', outline: '#7fb3dde6', accent: '#ffffffcc', accentDark: '#cfe9ffcc', mouth: '#4a7ea8', tongue: '#ff8fa3aa' }, traits: ['Glass', ...s.traits] }) },
+  shadow: { title: 'Shadow', apply: (s) => ({ ...s, special: 'shadow', marks: 'none', palette: { ...s.palette, body: '#2c2440', light: '#43385f', shade: '#1b1528', outline: '#07050c', accent: '#9b7bff', accentDark: '#6d4fe0', eye: '#c7b6ff', mouth: '#0b0812' }, traits: ['Shadow', ...s.traits] }) },
+};
+const SPECIAL_KINDS = Object.keys(SPECIALS);
+
+// ---- species (the album) ---------------------------------------------------------------------
+const TOP_NAMES = { none: '', ears: 'Eared', horns: 'Horned', antenna: 'Antenna', twin: 'Twin-antenna', tuft: 'Tufted' };
+/** A pet's species: its body shape × what's on its head (30 kinds), or its special kind. */
+function speciesOf(spec) { return spec.special ? `special:${spec.special}` : `${spec.shape}:${spec.top}`; }
+function speciesName(key) {
+  const [a, b] = key.split(':');
+  if (a === 'special') return (SPECIALS[b] || { title: b }).title;
+  return [TOP_NAMES[b], SHAPES[a] ? SHAPES[a].name : a].filter(Boolean).join(' ');
+}
+/** Every species, in album order: the 30 regular ones, then the specials. */
+function allSpecies() {
+  const out = [];
+  for (const sh of Object.keys(SHAPES)) for (const t of TOPS) if (!(sh === 'pear' && t === 'tuft')) out.push(`${sh}:${t}`);
+  for (const k of SPECIAL_KINDS) out.push(`special:${k}`);
+  return out;
+}
+/** A stand-in seed for a species (used for silhouettes of species you haven't found yet). Deterministic. */
+function sampleSeed(key) {
+  if (key.startsWith('special:')) return `sp:${key.slice(8)}:album`;
+  for (let i = 0; i < 5000; i++) { const s = `album:${key}:${i}`; if (speciesOf(generate(s)) === key) return s; }
+  return `album:${key}`;
 }
 
 // ---- sprite assembly ------------------------------------------------------------------------
@@ -125,6 +177,18 @@ function buildStatic(spec, bodyShift) {
       g.mirror(hx, y0 + i, c);
     }
   });
+  if (spec.special === 'rainbow') {                 // each body row a colour of the rainbow, shaded at the edges
+    spec.rows.forEach((w, i) => {
+      const hue = RAINBOW[Math.min(RAINBOW.length - 1, Math.floor((i / spec.bodyH) * RAINBOW.length))];
+      for (let hx = 0; hx <= w; hx++) g.mirror(hx, y0 + i, hsl(hue, 85, hx === w || i === spec.bodyH - 1 ? 52 : 64));
+    });
+  }
+  if (spec.special === 'diamond') {                 // cut facets: diagonal bands of light and shade
+    spec.rows.forEach((w, i) => { for (let hx = 0; hx <= w; hx++) { const f = (hx + i) % 4; if (f === 0) g.mirror(hx, y0 + i, p.light); else if (f === 2) g.mirror(hx, y0 + i, p.shade); } });
+  }
+  if (spec.special === 'glass') {                   // a glint across the glass
+    spec.rows.forEach((w, i) => { const hx = Math.max(0, w - 1 - i); if (i > 0 && i < spec.bodyH - 1 && hx <= w) g.set(CX - hx, y0 + i, p.light); });
+  }
   // highlight (screen-space left, so lighting is consistent rather than mirrored)
   const hl = (hx, i) => { if (rowW(i) >= hx) g.set(CX - hx, y0 + i, p.light); };
   hl(Math.max(1, rowW(1) - 1), 1); hl(Math.max(1, rowW(1)), 1); if (spec.bodyH > 5) hl(rowW(2), 2);
@@ -146,6 +210,11 @@ function buildStatic(spec, bodyShift) {
   else if (spec.top === 'antenna') { g.mirror(0, top - 1, p.shade); g.mirror(0, top - 2, p.shade); for (const hx of [0, 1]) g.mirror(hx, top - 3, p.accent); }
   else if (spec.top === 'twin') { const hx = Math.min(2, w0 - 1); g.mirror(hx, top - 1, p.shade); g.mirror(hx, top - 2, p.shade); g.mirror(hx, top - 3, p.accent); }
   else if (spec.top === 'tuft') { for (const hx of [0, 1]) g.mirror(hx, top - 1, p.shade); g.mirror(0, top - 2, p.shade); }
+  else if (spec.top === 'unicorn') {                 // one spiral horn, gold and white, centred
+    const gold = '#ffd166', pearl = '#fff7e6';
+    g.set(CX, top - 1, gold); g.set(CX, top - 2, pearl); g.set(CX, top - 3, gold); g.set(CX, top - 4, pearl);
+    g.mirror(1, top - 1, pearl);
+  }
   else if (spec.top === 'crown') { for (const hx of [0, 1, 2]) g.mirror(hx, top - 1, '#ffd166'); g.mirror(2, top - 1, '#e0a800'); g.mirror(0, top - 1, p.accent); for (const hx of [0, 2]) g.mirror(hx, top - 2, '#ffd166'); g.mirror(1, top - 2, '#e0a800'); g.set(CX, top - 2, '#ffd166'); }
 
   // arms
@@ -308,17 +377,19 @@ function evolveSpec(base, stage = 2, fat = 0) {
   stage = Math.max(1, Math.min(4, stage | 0)); fat = Math.max(0, Math.min(2, fat | 0));
   if (stage === 2 && fat === 0) return base;
   let hw = base.hw, bodyH = base.bodyH, top = base.top, arms = base.arms, marks = base.marks, eyes = base.eyes, mouth = base.mouth, legsN = base.legsN, legLen = base.legLen;
-  if (stage === 1) { hw = 3; bodyH = 5; top = base.top === 'none' ? 'none' : 'tuft'; arms = 'none'; legsN = 2; legLen = 1; eyes = 'big'; mouth = 'smile'; marks = marks === 'stripes' ? 'cheeks' : marks; }
+  if (stage === 1) { hw = 3; bodyH = 5; top = base.top === 'none' ? 'none' : 'ears'; arms = 'none'; legsN = 2; legLen = 1; eyes = 'big'; mouth = 'smile'; marks = marks === 'stripes' ? 'cheeks' : marks; }
   if (stage === 3) { hw = Math.min(6, base.hw + 1); bodyH = Math.min(8, base.bodyH + 1); arms = base.arms === 'none' ? 'nubs' : 'claws'; top = TOP_UPGRADE[base.top]; marks = marks === 'none' ? 'spots' : marks; }
   if (stage === 4) { hw = 6; bodyH = 8; arms = 'claws'; top = 'crown'; legsN = 4; legLen = 2; marks = marks === 'none' ? 'belly' : marks; }
   if (fat > 0 && marks === 'none') marks = 'belly';
   // The belly bulges up to the canvas edge (7), except on the row where arms attach, which must leave room for them.
   const armRow = Math.max(2, bodyH - 4), armCap = arms === 'claws' ? 6 : 7;
-  const rows = SHAPES[base.shape].delta(bodyH).map((d, i, a) => {
+  const shapeNow = stage === 1 ? 'blob' : base.shape;        // hatchlings are round little blobs (a small pear looked like 💩)
+  const rows = SHAPES[shapeNow].delta(bodyH).map((d, i, a) => {
     const w = Math.max(2, hw + d), belly = i > 0 && i < a.length - 1 ? fat : 0;
     return Math.min(arms !== 'none' && i === armRow ? armCap : 7, w + belly);
   });
-  const topH = { none: 0, ears: 2, horns: 3, antenna: 3, twin: 3, tuft: 2, crown: 2 }[top];
+  if (base.top === 'unicorn') top = 'unicorn';      // a unicorn stays a unicorn at every stage
+  const topH = { none: 0, ears: 2, horns: 3, antenna: 3, twin: 3, tuft: 2, crown: 2, unicorn: 4 }[top];
   const spots = { spots: Array.from({ length: 3 }, (_, i) => [Math.min(hw - 1, 1 + ((i * 2 + base.seed.length) % Math.max(1, hw - 1))), 1 + ((i + 1) % Math.max(1, bodyH - 3))]) };
   return { ...base, stage, fat, hw, bodyH, y0: GROUND - legLen - bodyH + 1, rows, top, topH, arms, marks, eyes, mouth, legsN, legLen, eyeGap: Math.max(1, Math.min(hw - 2, base.eyeGap)), seedMarks: marks === 'spots' ? spots : base.seedMarks };
 }
@@ -343,5 +414,5 @@ function hueOf(hex) {
   return Math.round(((h * 60) + 360) % 360);
 }
 
-const api = { W, H, CX, GROUND, rng, generate, compose, silhouetteOf, hsl, key, anchors, evolveSpec };
+const api = { W, H, CX, GROUND, rng, generate, compose, silhouetteOf, hsl, key, anchors, evolveSpec, speciesOf, speciesName, allSpecies, sampleSeed, SPECIAL_KINDS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else self.TokkieMonster = api;

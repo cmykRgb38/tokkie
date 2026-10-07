@@ -293,3 +293,14 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .dayhead::after { content: "›"; color: var(--ink-3); transition: transform .15s; }
 .dayhead[aria-expanded="true"]::after { transform: rotate(90deg); }
 .day .runlist { margin-top: 8px; }
+
+/* Album: every species, silhouettes until found */
+.album { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.acard { display: grid; justify-items: center; gap: 1px; padding: 4px 1px 3px; border-radius: 8px; border: 1px solid transparent; font-size: 9.5px; line-height: 1.15; color: var(--ink-3); text-align: center; min-width: 0; }
+.acard span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acard canvas { image-rendering: pixelated; }
+.acard:not(:disabled) { color: var(--ink-2); cursor: pointer; }
+.acard:not(:disabled):hover { background: var(--bg-raised); }
+.acard[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.acard.secret { background: linear-gradient(135deg, oklch(0.75 0.12 330 / .10), oklch(0.75 0.12 200 / .10)); }
+.acard:disabled { cursor: default; }

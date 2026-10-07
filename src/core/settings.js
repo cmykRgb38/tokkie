@@ -11,7 +11,8 @@ const DEFAULTS = Object.freeze({
   alwaysOnTop: true,
   scale: 6,
   fallbackBudget5h: 0,       // tokens; 0 = unknown until the statusline reports a real %
-  monsters: { active: '', saved: [] },
+  monsters: { active: '', saved: [], hideOwn: false },
+  album: {},                 // species you've met: { 'blob:horns': seed, 'special:rainbow': seed, … }
   seed: null,                // first monster seed (derived from user on first run)
   window: { x: null, y: null, expanded: false, tab: 'usage' },
   calib: { five: {}, seven: {} },
@@ -56,7 +57,7 @@ class Settings {
     try { merge(this.data, JSON.parse(fs.readFileSync(this.file, 'utf8'))); } catch { /* first run or corrupt: defaults */ }
     const d = this.data;
     d.samples = (Array.isArray(d.samples) ? d.samples : []).filter((x) => x && Number.isFinite(x.start) && Number.isFinite(x.duration) && Number.isFinite(x.chars));
-    d.monsters = { active: String(d.monsters.active || ''), saved: (Array.isArray(d.monsters.saved) ? d.monsters.saved : []).map(String).slice(0, 5) };
+    d.monsters = { active: String(d.monsters.active || ''), saved: (Array.isArray(d.monsters.saved) ? d.monsters.saved : []).map(String).slice(0, 5), hideOwn: !!d.monsters.hideOwn };
     for (const k of ['five', 'seven']) if (!isObj(d.calib[k]) || !(d.calib[k].k > 0)) d.calib[k] = {};
   }
   get(k) { return this.data[k]; }

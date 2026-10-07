@@ -24,9 +24,32 @@ export function petsView(root, api) {
   const emotes = el('div', { class: 'chips', role: 'group', 'aria-label': 'Preview an emotion' }, EMOTION_LABELS.map(([m, l]) => el('button', { class: 'btn sm quiet', type: 'button', text: l, onclick: () => api.emote(m) })));
   const persona = el('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'Personality' }, PERSONALITIES.map(([v, l, d]) => el('button', { class: 'btn sm', type: 'button', role: 'radio', 'data-v': v, 'aria-checked': 'false', text: l, title: d, onclick: () => api.setSettings({ personality: v }) })));
   const personaNote = el('p', { class: 'muted' });
+  // Secret code → special pet
+  const codeIn = el('input', { class: 'input', type: 'text', placeholder: 'Secret code', 'aria-label': 'Secret code', autocomplete: 'off', spellcheck: 'false', style: 'flex:1' });
+  const codeBtn = el('button', { class: 'btn', type: 'button', text: 'Unlock' });
+  const codeMsg = el('p', { class: 'muted', hidden: true });
+  const tryCode = async () => {
+    if (!codeIn.value.trim()) return;
+    codeBtn.disabled = true;
+    try {
+      const r = await api.redeem(codeIn.value);
+      codeMsg.hidden = false;
+      if (r.ok) { codeIn.value = ''; codeMsg.style.color = 'var(--good)'; codeMsg.textContent = `✨ You unlocked ${r.name}, a ${M.speciesName('special:' + r.kind)} pet!${r.saved ? ' It’s in your collection.' : ' Your collection is full — remove one to keep it.'}`; api.emote('done'); }
+      else { codeMsg.style.color = 'var(--bad)'; codeMsg.textContent = r.error; }
+    } finally { codeBtn.disabled = false; }
+  };
+  codeBtn.addEventListener('click', tryCode);
+  codeIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryCode(); } });
+  // Album: every species (body shape × head) and the secret ones — silhouettes until you've met one
+  const albumHead = el('div', { class: 'row' }, el('span', { class: 'label', text: 'Album' }), el('span', { class: 'muted' }));
+  const albumGrid = el('div', { class: 'album' });
+  const albumNote = el('p', { class: 'muted', text: 'Generate pets to discover species. Secret ones need a code.' });
+  const bringBack = el('button', { class: 'btn sm quiet', type: 'button', hidden: true });
   root.append(el('div', { class: 'stack' },
     evoCard,
-    el('div', { class: 'row', style: 'gap:8px' }, reroll, save), note, slotsBox, count,
+    el('div', { class: 'row', style: 'gap:8px' }, reroll, save), note, slotsBox, count, bringBack,
+    el('div', { class: 'row', style: 'gap:8px' }, codeIn, codeBtn), codeMsg,
+    el('div', { class: 'divider' }), albumHead, albumGrid, albumNote,
     el('div', { class: 'divider' }), el('div', { class: 'label', text: 'Personality' }), persona, personaNote,
     el('div', { class: 'divider' }), el('div', { class: 'label', text: 'Preview an emotion' }),
     el('p', { class: 'muted', style: 'margin-top:-8px', text: 'Plays it once so you can see it — this doesn’t change the personality.' }), emotes,
@@ -46,8 +69,37 @@ export function petsView(root, api) {
     if (!deletable) return b;
     // The remove control is a sibling of the slot button (buttons must not nest interactive content).
     const d = el('button', { class: 'del', type: 'button', 'aria-label': `Remove ${spec.name}`, title: 'Remove' }, icon('x'));
-    d.addEventListener('click', () => { const { saved, active } = S.settings.monsters; setM({ saved: saved.filter((x) => x !== seed), active: active === seed ? S.signature : active }); });
+    d.addEventListener('click', () => {
+      const { saved, active, hideOwn } = S.settings.monsters;
+      const own = seed === S.signature;
+      const left = own ? saved : saved.filter((x) => x !== seed);
+      const ownShown = own ? false : !hideOwn;
+      // if the one you remove is the active pet, switch to another you have — or a brand-new one if none are left
+      let next = active;
+      if (active === seed) next = ownShown ? S.signature : left[0] || 'n' + Math.random().toString(36).slice(2, 12);
+      const keep = !ownShown && !left.length ? [next] : left;
+      setM({ saved: keep, active: next, hideOwn: own ? true : hideOwn });
+    });
     return el('div', { class: 'slotwrap' }, b, d);
+  }
+
+  let albumKey = '';
+  function drawAlbum(s) {
+    const album = s.settings.album || {}, all = M.allSpecies();
+    const k = JSON.stringify([album, s.settings.monsters.active]);
+    if (k === albumKey) return; albumKey = k;
+    const found = all.filter((x) => album[x]).length;
+    albumHead.lastChild.textContent = `${found} of ${all.length} found`;
+    albumGrid.replaceChildren(...all.map((sp) => {
+      const seed = album[sp], secret = sp.startsWith('special:');
+      const cv = el('canvas'); const ap = new Pet(cv, { scale: 2, spriteOnly: true }); ap.setSeed(seed || M.sampleSeed(sp)); ap.setForm(2, 0);
+      if (!seed) ap.setLocked(true);
+      const name = seed ? M.speciesName(sp) : secret ? '???' : M.speciesName(sp);
+      const b = el('button', { class: 'acard' + (secret ? ' secret' : ''), type: 'button', 'aria-pressed': String(!!seed && s.settings.monsters.active === seed), disabled: !seed,
+        title: seed ? `${M.speciesName(sp)} — ${M.generate(seed).name}. Click to show it.` : secret ? 'A secret pet — unlocked with a code' : `${M.speciesName(sp)} — not found yet. Keep generating!` }, cv, el('span', { text: name }));
+      if (seed) b.addEventListener('click', () => setM({ active: seed }));
+      return b;
+    }));
   }
 
   let key = '';
@@ -84,9 +136,13 @@ export function petsView(root, api) {
       note.hidden = isSaved;
       if (!isSaved) note.replaceChildren(el('b', { text: spec.name }), saved.length >= MAX ? ' is new — your collection is full, remove one to keep it.' : ' is new and not saved yet. Save to keep it, or generate another.');
       count.textContent = `${saved.length} of ${MAX} saved · generate as many as you like`;
-      const nodes = [slot(s.signature, 'You', false)];
+      const hideOwn = !!s.settings.monsters.hideOwn;
+      const nodes = hideOwn ? [] : [slot(s.signature, 'You', true)];
+      bringBack.hidden = !hideOwn;
+      if (hideOwn) { bringBack.textContent = `Bring back ${M.generate(s.signature).name} (your first pet)`; bringBack.onclick = () => setM({ hideOwn: false }); }
       for (let i = 0; i < MAX; i++) nodes.push(saved[i] ? slot(saved[i], '', true) : el('div', { class: 'slot empty-slot', 'aria-hidden': 'true' }, el('span', { class: 'sname', text: 'Empty' })));
       slotsBox.replaceChildren(...nodes);
+      drawAlbum(s);
     },
     setActive() {},
   };

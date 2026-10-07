@@ -75,3 +75,33 @@ test('pets made before 1.0.19 keep their names; new pets draw from a much bigger
   const a = M.generate('you:admin:1a2b3c4d5e6f'), b = M.generate('you:admin:9f8e7d6c5b4a');
   assert.notDeepEqual([a.name, a.palette.body, a.shape, a.top, a.eyes], [b.name, b.palette.body, b.shape, b.top, b.eyes]);
 });
+
+test('secret codes unlock special pets (codes are stored only as hashes), and special pets draw cleanly at every stage', () => {
+  const M = require('../src/core/monster'), S = require('../src/core/secrets');
+  assert.equal(S.redeem(' Rain Bow '), 'rainbow'); assert.equal(S.redeem('gold'), 'golden'); assert.equal(S.redeem('nope'), null);
+  assert.ok(!require('fs').readFileSync(require.resolve('../src/core/secrets'), 'utf8').includes("'unicorn'".replace('unicorn', 'uni' + 'corn') + ': '));
+  for (const k of M.SPECIAL_KINDS) {
+    const s = M.generate(`sp:${k}:x1`);
+    assert.equal(s.special, k); assert.equal(M.speciesOf(s), `special:${k}`);
+    for (const st of [1, 2, 3, 4]) { const f = M.compose(M.evolveSpec(s, st, st === 4 ? 2 : 0), {}); for (const c of [...f.cells, ...f.outline]) { assert.ok(c.x >= 0 && c.x < M.W && c.y >= 0 && c.y < M.H, `${k} stage ${st} in bounds`); } }
+  }
+  assert.equal(M.generate('sp:unicorn:x1').top, 'unicorn');
+  assert.equal(M.evolveSpec(M.generate('sp:unicorn:x1'), 4).top, 'unicorn');
+});
+
+test('new pet names avoid rude words', () => {
+  const M = require('../src/core/monster');
+  for (let i = 0; i < 50000; i++) assert.ok(!/poo|ass|butt|fart|shit|dick/i.test(M.generate('n' + i.toString(36)).name));
+});
+
+test('no poop: warm pets are never shaded brown, hatchlings are round, pears never get a tuft', () => {
+  const M = require('../src/core/monster');
+  const hl = (hex) => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255); const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; let h = 0; if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return [(h * 60 + 360) % 360, (mx + mn) / 2, d]; };
+  for (let i = 0; i < 5000; i++) {
+    const s = M.generate('you:u' + i);
+    const [h, l, chroma] = hl(s.palette.shade);
+    assert.ok(!(h >= 20 && h <= 50 && l < 0.42 && chroma < 0.6), `${s.seed} shade ${s.palette.shade} is brown`);
+    assert.ok(!(s.shape === 'pear' && s.top === 'tuft'));
+    assert.notEqual(M.evolveSpec(s, 1).top, 'tuft');
+  }
+});

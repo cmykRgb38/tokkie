@@ -224,6 +224,11 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
         await js(`(()=>{const i=document.querySelector('#view-history input');i.value='';i.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(300);
       }
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(400);
+      const albumBefore = await js(`window.tokkie.getState().then((s) => Object.keys(s.settings.album || {}).length)`);
+      const bad = await js(`window.tokkie.ui.redeem('definitely-not-a-code')`);
+      const good = await js(`window.tokkie.ui.redeem('Diamond')`); await wait(800);
+      const st2 = await js(`window.tokkie.getState().then((s) => ({ active: s.settings.monsters.active, album: Object.keys(s.settings.album || {}) }))`);
+      ok('a secret code unlocks a special pet, makes it active and adds it to the album', !bad.ok && good.ok && good.kind === 'diamond' && st2.active === good.seed && st2.album.includes('special:diamond') && st2.album.length > albumBefore, JSON.stringify({ bad, good, st2 }).slice(0, 300));
       ok('no renderer console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
     } catch (e) { ok('e2e harness threw', false, e.stack); }
     const failed = results.filter((r) => !r[1]).length;

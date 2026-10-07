@@ -32,5 +32,6 @@ contextBridge.exposeInMainWorld('tokkie', {
     copyText: (t) => ipcRenderer.invoke('ui:copyText', t),
     promptText: (sid, uuid) => ipcRenderer.invoke('run:prompt', sid, uuid),
     history: () => ipcRenderer.invoke('runs:history'),
+    redeem: (code) => ipcRenderer.invoke('pets:redeem', code),
   },
 });
