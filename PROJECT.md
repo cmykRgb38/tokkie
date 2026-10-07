@@ -32,6 +32,15 @@ Claude's `plan-usage-history.json` is only written occasionally (hours apart), s
   - `PERSONALITY` in `pet.js` sets the idle face, self-emote cadence, hover and poke reactions, and the bored/sleep minutes.
   - `evolution.display` pins a form; growing up then shows a note instead of transforming.
 
+## Claude bar (v1.0.5–1.0.9)
+- The app writes `~/.tokkie/band.json` (`{updatedAt, show, items:[{k,label,value,tone,tip}], alert, avatar}`) and the bridge draws it as an `AbovePrompt` band. A file older than 2 minutes means Tokkie is closed, so no bar is drawn.
+- Lessons from the user's screenshots:
+  - Bordered `Box` chips render tall on desktop.
+  - `Svg isInteractive` draws in a white sandboxed frame that ignores the theme, and its `<title>` tooltips didn't show.
+  - What works: borderless rows of a small `Svg` icon plus `Text`, with hover-reveal explanation lines. Those lines are `display:"none"` with `hover:{scope, display:"flex"}`, and the chip and its tip share a `scope`.
+  - The terminal resolves `Svg` to an empty Box, so branch on `e.surface === 'terminal'` and use glyphs there.
+- Packaging: electron-builder drops `*.d.ts`, so `bridge/` ships via `extraResources`, with `BRIDGE_SOURCE = process.resourcesPath/bridge` when packaged.
+
 ## Evolution
 `core/evolution.js` (thresholds 0/2M/10M/40M headline tokens → Hatchling/Junior/Champion/Mega; chub level 0–2 inside a form) + `monster.evolveSpec(base, stage, fat)` (pure; Junior = the generated creature; Mega gets a crown). Engine counts tokens from `settings.evolution.start` (set on first run, so history isn't food) and banks pruned messages into `archived`. Renderer celebrates when `stage > stageSeen` (also on next launch if it grew while closed). QA: `TOKKIE_EVO_EATEN=<n>` forces a total; `window.__tokkie.previewForm(stage, fat)`; `dev/forms.html` contact sheet.
 
