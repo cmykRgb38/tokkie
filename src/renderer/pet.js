@@ -325,12 +325,12 @@ export class Pet {
     switch (m) {
       case 'work': p.mouth = t % 4 < 2 ? 'open' : 'chew'; p.bob = still ? 0 : (t % 4 < 2 ? 0 : -1); p.frame = t % 4 < 2 ? 0 : 1; p.look = { x: 1, y: -1 }; break;
       case 'stress': p.mouth = t % 6 < 3 ? 'o' : 'flat'; p.bob = still ? 0 : (t % 2 ? -1 : 0); p.look = { x: -1, y: 0 }; break;
-      case 'hungry': p.mouth = 'sad'; p.look = { x: 0, y: 1 }; p.shiver = !still && t % 2 === 0; break;
+      case 'hungry': p.mouth = 'sad'; p.look = { x: 0, y: 1 }; p.shiver = !still && t % 50 < 5 && t % 2 === 0; p.bob = still ? 0 : (t % 30 < 15 ? 0 : 1); break;   // a weak shiver now and then (not non-stop: that read as broken)
       case 'sleep': p.eye = 'closed'; p.mouth = 'flat'; p.bob = still ? 0 : (t % 18 < 9 ? 0 : -1); p.look = { x: 0, y: 0 }; break;
       case 'done': p.eye = 'happy'; p.mouth = 'open'; p.bob = -1; break;
       case 'alert': p.eye = blinking ? 'closed' : 'wide'; p.mouth = 'o'; p.bob = still ? 0 : (t % 4 < 2 ? 0 : -1); p.frame = t % 4 < 2 ? 0 : 1; p.look = { x: this.look.x, y: -0.6 }; break;   // "hey! over here!"
       case 'ask': p.eye = 'open'; p.mouth = 'flat'; p.bob = still ? 0 : (t % 14 < 7 ? 0 : -1); p.look = { x: this.look.x * 0.4, y: -1 }; break;               // patiently waiting, glancing up
-      case 'angry': p.eye = 'angry'; p.mouth = 'grit'; p.shiver = !still && t % 2 === 0; p.look = { x: this.look.x, y: 0 }; break;
+      case 'angry': p.eye = 'angry'; p.mouth = 'grit'; p.shiver = !still && (this.override ? t % 2 === 0 : t % 40 < 6 && t % 2 === 0); p.look = { x: this.look.x, y: 0 }; break;   // a poke: a tantrum; working overtime: a grumble now and then
       case 'bored': {                                                // heavy lids, wandering gaze, the occasional yawn
         p.eye = 'bored'; p.mouth = t % 70 > 60 ? 'open' : 'flat'; p.bob = 0;
         p.look = t % 70 > 60 ? { x: 0, y: -1 } : { x: Math.sin(t / 22) > 0.2 ? 1 : Math.sin(t / 22) < -0.2 ? -1 : 0, y: 0 };

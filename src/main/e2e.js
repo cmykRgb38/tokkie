@@ -71,6 +71,8 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
       ok('the pet plays (console, ball, butterfly, painting, book), snaps then hides when poked too much, stops when Claude gets busy, and only its own pixels take clicks',
         ['console', 'ball', 'butterfly', 'paint', 'read'].every((k) => play[k] === k) && play.angry === 'angry' && play.snap && play.hid && play.stopped && !play.hitEmpty && play.hitBody, JSON.stringify(play));
       await js(`window.__tokkie.pet.hide=null; window.__tokkie.pet.bite=null; window.__tokkie.pet.dx=0; window.__tokkie.pet.tx=0`);
+      const shiv = await js(`(()=>{const P=window.__tokkie.pet, b=P.base, t0=P.tick; P.override=null; P.base='hungry'; let n=0; for(let i=0;i<100;i++){P.tick=t0+i; if(P.pose().shiver) n++;} P.base=b; P.tick=t0; return n;})()`);
+      ok('a hungry pet (limit nearly used up) only shivers now and then, not non-stop', shiv > 0 && shiv <= 8, String(shiv));
       await rclick('#stage'); await wait(700); st = await state();
       ok('right-click pet → panel opens below (pet in upper half)', st.mode === 'expanded' && st.cls === 'below' && !st.panelHidden);
       ok('pet does not jump when panel opens', near(petPos(), p0), JSON.stringify([p0, petPos()]));
