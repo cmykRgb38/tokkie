@@ -94,7 +94,7 @@ export function chatAdvice(c, now = Date.now(), { prompt = false } = {}) {
     + (c.cold ? ` Its cache has expired, so the first step also re-writes all ${size} at full price.` : soon ? ` Its cache expires in ${soon} min: send soon, or start fresh.` : '')
     + (here && fresh ? ` ${prompt ? 'This prompt' : 'A typical run'} here ${here}; in a new chat ${fresh}.` : ` About ${Math.round(times)}× the usage of the same prompt in a new chat.`)
     + ' In Claude Code type /clear (fresh) or /compact (keeps a summary); in Chat or Cowork start a new chat.';
-  const value = here ? `${here} next` : `~${Math.round(times)}× new chat`;
+  const value = here || `~${Math.round(times)}× new chat`;
   const alert = c.cold ? `Cache expired on this ${size} chat: the next message re-writes it all${here ? ` (${here})` : ''}. /compact or a new chat is cheaper.`
     : `This ${size} chat makes each prompt ~${Math.round(times)}× pricier than a new one${here ? ` (${here} vs ${fresh})` : ''}.`;
   return { title, body, value, alert, tone: c.cold || times >= 5 ? 'bad' : 'warn', usd };
