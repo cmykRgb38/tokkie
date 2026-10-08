@@ -106,7 +106,7 @@ button { cursor: pointer; background: none; border: 0; }
 .tabs button[aria-selected="true"] .ic { stroke: var(--accent); }
 
 /* Shared bits --------------------------------------------------------------------------------- */
-.stack { display: grid; gap: 14px; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .label { font-size: 12px; color: var(--ink-2); font-weight: 550; }
 .muted { color: var(--ink-3); font-size: 12px; }
@@ -140,7 +140,7 @@ textarea.input { height: auto; min-height: 56px; padding: 8px 10px; resize: none
 .switch[aria-checked="true"] { background: var(--accent); border-color: transparent; }
 .switch[aria-checked="true"]::after { transform: translateX(16px); background: var(--accent-ink); }
 .switch[disabled] { opacity: .4; pointer-events: none; }
-.kbd { font: 600 11.5px var(--mono); padding: 3px 7px; border-radius: 6px; background: var(--bg-sunken); border: 1px solid var(--line-strong); border-bottom-width: 2px; color: var(--ink-2); }
+.kbd { font: 600 13px/1 var(--font); letter-spacing: .02em; word-spacing: .18em; padding: 6px 10px; border-radius: var(--r-sm); white-space: nowrap; background: var(--bg-sunken); border: 1px solid var(--line-strong); border-bottom-width: 2px; color: var(--ink-2); }
 .note { padding: 10px 12px; border-radius: var(--r-md); background: var(--bg-raised); font-size: 13px; color: var(--ink-2); line-height: 1.5; }
 .note b { color: var(--ink); font-weight: 650; }
 
@@ -228,7 +228,7 @@ button.slot:hover { border-color: var(--line-strong); transform: translateY(-1px
 .acc[data-k="in"] { color: var(--good); } .acc[data-k="near"] { color: var(--warn); } .acc[data-k="off"] { color: var(--bad); }
 
 /* Attention bubble: appears above the pet when Claude is done / may need you */
-.bubble { position: absolute; top: 0; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 9px; padding: 7px 13px 7px 8px; border-radius: 14px;
+.bubble { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: max-content; display: flex; align-items: center; gap: 9px; padding: 7px 13px 7px 8px; border-radius: 14px;
   background: var(--bg); border: 1.5px solid var(--bad); box-shadow: var(--shadow); white-space: nowrap; max-width: 330px; animation: bubbleIn .32s var(--ease-out); cursor: pointer; }
 .bubble::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 11px; height: 11px; background: var(--bg); border-right: 1.5px solid var(--bad); border-bottom: 1.5px solid var(--bad); transform: translateX(-50%) rotate(45deg); }
 .bubble .bang { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--bad); color: var(--bg); font-weight: 700; font-size: 15px; flex: none; animation: bangPulse 1.4s ease-in-out 3; }   /* pulses three times, then rests: never noisy */
@@ -290,7 +290,7 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .days { display: grid; gap: 10px; }
 .dayhead { width: 100%; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; position: sticky; top: -14px; z-index: 1; background: var(--bg); }
 .dayhead .dname { font-weight: 650; }
-.dayhead .dsum { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dayhead .dsum { min-width: 0; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dayhead::after { content: "›"; color: var(--ink-3); transition: transform .15s; }
 .dayhead[aria-expanded="true"]::after { transform: rotate(90deg); }
 .day .runlist { margin-top: 8px; }
@@ -361,3 +361,10 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .chips.persona .btn { padding: 0 4px; font-size: 12px; }
 .chips.emotes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
 .chips.emotes .btn { padding: 0 4px; font-size: 12px; }
+
+.days, .day, .runlist { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.run { min-width: 0; }
+.label.with-ic { display: inline-flex; align-items: center; gap: 6px; } .label.with-ic .ic, .btn .ic { width: 15px; height: 15px; }
+.until { color: var(--ink-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.btn.icon-only { width: 32px; padding: 0; }
+.empty .kbd, p .kbd, li .kbd { padding: 2px 6px; font-size: 12px; vertical-align: 1px; }

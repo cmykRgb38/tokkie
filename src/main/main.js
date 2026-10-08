@@ -144,6 +144,7 @@ function maybeScreenshot() {
   if (!out) return;
   const tab = process.env.TOKKIE_TAB;
   setTimeout(() => { if (tab) send('command', { type: 'open', tab }); }, 1500);
+  if (process.env.TOKKIE_ALERT) setTimeout(() => win.webContents.executeJavaScript(`window.__tokkie.forceAlert(${JSON.stringify(process.env.TOKKIE_ALERT)})`), 1800);
   if (process.env.TOKKIE_SCROLL) setTimeout(() => win.webContents.executeJavaScript(`document.querySelectorAll('.view').forEach((v) => { v.scrollTop = ${Number(process.env.TOKKIE_SCROLL) || 0}; })`), Number(process.env.TOKKIE_SHOT_DELAY || 2200) - 400);
   if (process.env.TOKKIE_EST) setTimeout(() => { const t = process.env.TOKKIE_EST; send('estimate', { source: 'hotkey', text: t, result: engine.estimate(t) }); }, 2000);
   setTimeout(async () => {
@@ -411,7 +412,7 @@ else {
     }, 2000);
     // Pointer position → eyes follow the cursor (only while visible; ~12 Hz is plenty).
     setInterval(() => {
-      if (!win || !win.isVisible()) return;
+      if (!win || !win.isVisible() || process.env.TOKKIE_E2E) return;   // tests drive the cursor themselves
       const p = screen.getCursorScreenPoint(), b = win.getBounds();
       const x = p.x - b.x, y = p.y - b.y;
       if (x === lastCursor.x && y === lastCursor.y) return;

@@ -122,7 +122,12 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       await mood(`p.override = null; p.look = {x: 2, y: 0}`);
       const lookRight = await mood(`return JSON.stringify(window.TokkieMonster.compose(p.spec, {look:{x:1,y:0}}).cells)`), lookLeft = await mood(`return JSON.stringify(window.TokkieMonster.compose(p.spec, {look:{x:-1,y:0}}).cells)`);
       ok('eyes follow the cursor (left ≠ right)', lookLeft !== lookRight);
-      ok('cursor position reaches the pet', (await mood(`return p.look.x`)) === 2);
+      // far away still counts: the eyes follow the cursor anywhere on screen (they used to give up past 1400 px)
+      win.webContents.send('cursor', { x: 3000, y: 200 }); await wait(150);
+      const farRight = await mood(`return p.look.x`);
+      win.webContents.send('cursor', { x: -2500, y: 200 }); await wait(150);
+      const farLeft = await mood(`return p.look.x`);
+      ok('the eyes follow the cursor even when it is far away', farRight === 1 && farLeft === -1, JSON.stringify([farRight, farLeft]));
       await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(700); st = await state();
       ok('Enter on the focused pet opens the panel (keyboard access)', st.mode === 'expanded');
       await js(`document.getElementById('tab-pets').click()`); await wait(300);
@@ -240,7 +245,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       await js(`document.getElementById('tab-plan').click()`); await wait(300);
       // new prompt: the Estimate box
       await js(`(()=>{const t=document.querySelector('#view-plan textarea');t.value='fix the login thing pls';t.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(400);
-      await js(`[...document.querySelectorAll('#view-plan button')].find(b=>b.textContent.trim()==='✨ Optimize' && !b.closest('.run')).click()`); await wait(bridgeOn ? 2500 : 700);
+      await js(`[...document.querySelectorAll('#view-plan button')].find(b=>b.textContent.trim()==='Optimize' && !b.closest('.run')).click()`); await wait(bridgeOn ? 2500 : 700);
       const opt = await js(`(()=>{const o=[...document.querySelectorAll('#view-plan .opt')].find(x=>!x.closest('.run'));return {hidden:o.hidden,text:o.textContent.slice(0,400)}})()`);
       const okText = (o) => !o.hidden && (bridgeOn ? /src\/auth\.ts/.test(o.text) && /tokens/.test(o.text) && !/null/.test(o.text) : /bridge/i.test(o.text));
       ok('✨ Optimize in the Estimate box shows a clearer version (or explains it needs the bridge)', okText(opt), JSON.stringify(opt).slice(0, 300));

@@ -5,13 +5,14 @@ export { accuracy } from './runs.js';
 
 export function prettyKey(acc, platform) {
   const mac = platform === 'darwin';
-  return acc.split('+').map((k) => ({ CommandOrControl: mac ? '⌘' : 'Ctrl', Command: '⌘', Control: mac ? '⌃' : 'Ctrl', Alt: mac ? '⌥' : 'Alt', Option: '⌥', Shift: mac ? '⇧' : 'Shift' }[k] || k)).join(mac ? '' : '+');
+  // keys spaced apart (⌘ ⌥ ⇧ L), the way macOS menus show them; "Ctrl + Alt + Shift + L" elsewhere
+  return acc.split('+').map((k) => ({ CommandOrControl: mac ? '⌘' : 'Ctrl', Command: '⌘', Control: mac ? '⌃' : 'Ctrl', Alt: mac ? '⌥' : 'Alt', Option: '⌥', Shift: mac ? '⇧' : 'Shift' }[k] || k)).join(mac ? ' ' : ' + ');
 }
 
 const TITLES = { go: ['good', 'Go for it'], tight: ['warn', 'Cutting it close'], stop: ['bad', 'Better wait'], over: ['bad', 'Past your finish time'] };
 
 export function planView(root, api) {
-  const finish = el('input', { class: 'input', type: 'text', inputmode: 'text', autocomplete: 'off', 'aria-label': 'Finish by', title: 'e.g. 6:30pm or 18:30', style: 'width:96px;text-align:center' });
+  const finish = el('input', { class: 'input', type: 'text', inputmode: 'text', autocomplete: 'off', 'aria-label': 'Finish by', title: 'e.g. 6:30pm or 18:30', style: 'width:72px;text-align:center' });
   const commitFinish = () => {
     const v = parseTime(finish.value);
     if (v) { api.setSettings({ finishBy: v }); finish.value = labelForHHMM(v); finish.removeAttribute('aria-invalid'); rerun(); }
@@ -21,18 +22,20 @@ export function planView(root, api) {
   finish.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish.blur(); } });
 
   // ✨ Optimize what's in the box (the same rewrite the Claude bar's button does, but here you copy the result)
-  const optBtn = el('button', { class: 'btn sm', type: 'button', text: '✨ Optimize', title: 'Ask Claude for a clearer version of this prompt' });
+  const untilEl = el('span', { class: 'until' });
+  const optLabel = el('span', { text: 'Optimize' });
+  const optBtn = el('button', { class: 'btn sm', type: 'button', title: 'Ask Claude for a clearer version of this prompt' }, icon('sparkle'), optLabel);
   const optBox = el('div', { class: 'opt', hidden: true });
   optBtn.addEventListener('click', async () => {
     const text = ta.value;
     if (!text.trim()) { flash('Paste a prompt first, then Optimize.'); return; }
-    optBtn.disabled = true; optBtn.textContent = 'Optimizing…';
+    optBtn.disabled = true; optLabel.textContent = 'Optimizing…';
     optBox.hidden = false; optBox.replaceChildren(el('p', { class: 'muted', text: 'Asking Claude for a clearer version…' }));
     let r;
-    try { r = await api.optimize(text); } catch { r = { ok: false, error: 'Something went wrong.' }; } finally { optBtn.disabled = false; optBtn.textContent = '✨ Optimize'; }
+    try { r = await api.optimize(text); } catch { r = { ok: false, error: 'Something went wrong.' }; } finally { optBtn.disabled = !ta.value.trim(); optLabel.textContent = 'Optimize'; }
     if (!r || !r.ok) { optBox.replaceChildren(el('p', { class: 'muted', style: 'color:var(--bad)', text: (r && r.error) || 'Couldn’t optimize.' })); return; }
     optBox.replaceChildren(...[
-      el('div', { class: 'row' }, el('span', { class: 'label', text: `✨ ${r.before.promptTokens} → ${r.after.promptTokens} tokens · ${r.model[0].toUpperCase() + r.model.slice(1)}` }),
+      el('div', { class: 'row' }, el('span', { class: 'label with-ic' }, icon('sparkle'), `${r.before.promptTokens} → ${r.after.promptTokens} tokens · ${r.model[0].toUpperCase() + r.model.slice(1)}`),
         el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', title: 'Close', onclick: () => { optBox.hidden = true; } }, icon('x'))),
       el('div', { class: 'rfull', text: r.optimized }),
       r.changes.length ? el('ul', { class: 'optlist' }, r.changes.map((c) => el('li', { text: c }))) : null,
@@ -46,7 +49,7 @@ export function planView(root, api) {
 
   const ta = el('textarea', { class: 'input', rows: 2, placeholder: 'Paste your prompt here…', 'aria-label': 'Prompt to estimate', spellcheck: 'false' });
   const meta = el('span', { class: 'muted num' });
-  const clipBtn = el('button', { class: 'btn sm', type: 'button', title: 'Estimate whatever is on your clipboard', onclick: () => api.estimateClipboard() }, icon('clip'), 'Clipboard');
+  const clipBtn = el('button', { class: 'btn sm icon-only', type: 'button', title: 'Estimate whatever is on your clipboard', 'aria-label': 'Estimate clipboard', onclick: () => api.estimateClipboard() }, icon('clip'));
   const out = el('div', { class: 'stack', 'aria-live': 'polite' });
   ta.maxLength = 50000;
   optBtn.disabled = true;                                   // nothing to optimize yet
@@ -54,7 +57,7 @@ export function planView(root, api) {
 
   const runsBox = el('div', { class: 'runs' });
   root.append(el('div', { class: 'stack' },
-    el('div', { class: 'row' }, el('label', { class: 'label', style: 'display:flex;align-items:center;gap:8px;white-space:nowrap' }, 'Done by', finish), clipBtn),
+    el('div', { class: 'row' }, el('label', { class: 'label', style: 'display:flex;align-items:center;gap:8px;white-space:nowrap' }, 'Done by', finish, untilEl), clipBtn),
     el('div', { style: 'display:grid;gap:6px' }, ta, el('div', { class: 'row' }, meta, optBtn)),
     optBox,
     out, runsBox));
@@ -64,7 +67,8 @@ export function planView(root, api) {
   const flash = (msg) => { flashText = msg; flashUntil = Date.now() + 6000; paintMeta(); setTimeout(paintMeta, 6100); };
   const paintMeta = () => {
     const flashing = Date.now() < flashUntil;
-    meta.textContent = flashing ? flashText : [charsText, untilText].filter(Boolean).join(' · ');
+    meta.textContent = flashing ? flashText : charsText;
+    untilEl.textContent = untilText;
     meta.style.color = flashing ? 'var(--warn)' : '';
   };
 

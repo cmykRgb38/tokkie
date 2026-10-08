@@ -234,7 +234,7 @@ const ICON_PATHS: Record<string, string> = {
 }
 const GLYPH: Record<string, string> = { usage: '◔', pace: '↯', status: '✓', tokens: '▮', lastPrompt: '$', context: '≡', cache: '◷', agents: '⚙', alert: '!' }
 // The pet in the bar: a small square, about the height of the bar's text.
-const AVATAR_H = 16
+const AVATAR_H = 14
 const k = (key: string) => (ICON_PATHS[key] ? key : 'status')
 
 const icon = (k: string, color: string) =>
@@ -312,13 +312,14 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column" overflow="hidden">
           {b.alert ? <Text color={TONE.bad} wrap="truncate">⚠ {b.alert}</Text> : null}
-          <Box flexDirection="row" flexWrap="nowrap" overflow="hidden" alignItems="center" columnGap={1}>
-            {optButton}
+          {/* wraps onto more rows when the window is narrow, so nothing is cut off */}
+          <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={1} rowGap={0}>
             {b.avatar && b.showItems ? (
-              <Box key="tk" paddingRight={1} hover={{ scope: 'tokkie-about', backgroundColor: HL }}>
+              <Box key="tk" paddingX={1} hover={{ scope: 'tokkie-about', backgroundColor: HL }}>
                 <Svg source={b.avatar} alt="Tokkie" width={AVATAR_H} height={AVATAR_H} />
               </Box>
             ) : null}
+            {optButton}
             {b.items.map((it, i) => {
               const color = it.tone ? TONE[it.tone] : undefined
               return (

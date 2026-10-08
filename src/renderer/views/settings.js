@@ -63,7 +63,7 @@ export function settingsView(root, api) {
   const dayRow = field('Next reset', 'The date under “Resets …” on Claude’s Usage page.', dayIn, dayHint);
   const optModel = mkSeg([['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']], 'optimizerModel');
   const optRow = field('Model', 'Haiku is fast and cheapest. Sonnet reads intent better. Opus is best, slowest and uses the most.', optModel.node);
-  const optMode = mkSeg([['clearer', '✨ Clearer'], ['shorter', '✂ Shorter']], 'optimizerMode');
+  const optMode = mkSeg([['clearer', 'Clearer'], ['shorter', 'Shorter']], 'optimizerMode');
   const optModeRow = field('Style', 'Clearer adds what Claude would otherwise guess, so it’s often a little longer. Shorter keeps the meaning in the fewest tokens.', optMode.node);
   const optBtnT = toggle('Button in Claude Code', 'A ✨ Optimize button above Claude’s prompt box rewrites what you typed. Undo puts it back.', 'optimizeButton', api);
   const theme = mkSeg([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], 'theme');

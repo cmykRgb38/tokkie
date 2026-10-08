@@ -197,7 +197,7 @@ function dockLines(S, d, on = S.settings.dock || {}) {
   if (on.lastPrompt !== false && S.lastPrompt && now - S.lastPrompt.at < 12 * 3600e3) out.push({ k: 'lastPrompt', label: 'Last prompt', value: `$${S.lastPrompt.usd.toFixed(2)}`, pill: `last $${S.lastPrompt.usd.toFixed(2)}`, title: 'Exact cost of your last Claude Code prompt' });
   if (on.context !== false && S.context && S.cache && now - S.cache.at < 3600e3) {
     const c = S.context, tone = c.tokens >= 300e3 ? 'bad' : c.tokens >= 100e3 ? 'warn' : '';
-    out.push({ k: 'context', label: 'Context', value: fmtTokens(c.tokens) + (c.percent != null ? ` · ${Math.round(c.percent)}%` : ''), pill: `ctx ${fmtTokens(c.tokens)}`, tone,
+    out.push({ k: 'context', label: 'Context', value: fmtTokens(c.tokens) + (c.window ? ` / ${fmtTokens(c.window)}` : ''), pill: `ctx ${fmtTokens(c.tokens)}${c.window ? ` / ${fmtTokens(c.window)}` : ''}`, tone,
       title: c.tokens >= 300e3 ? 'Very long conversation — a fresh one is cheaper and sharper' : c.tokens >= 100e3 ? 'Getting long — /compact would make each reply cheaper' : 'How much the current conversation sends with every message' });
   }
   if (on.cache !== false && S.cache) {
@@ -369,7 +369,7 @@ function render() {
     d.mood = al.kind === 'done' ? 'alert' : 'ask';
     bubbleEl.hidden = !showBubble; bubbleEl.dataset.kind = al.kind;
     if (al.kind === 'done') { bubbleTitle.textContent = 'Done — awaiting your response'; bubbleSub.textContent = `${fmtDur((S.now - al.since) / 1000)} ago · click to dismiss`; }
-    else { bubbleTitle.textContent = 'Quiet for ' + fmtDur(al.quietMs / 1000) + ' — may need your approval'; bubbleSub.textContent = 'click to dismiss'; }
+    else { bubbleTitle.textContent = 'May need your approval'; bubbleSub.textContent = `Quiet for ${fmtDur(al.quietMs / 1000)} · click to dismiss`; }
   } else if (fitAlert && Date.now() < fitAlert.until && mode !== 'expanded') {
     // never silenced by the speech-bubble switch: this is the one you asked for
     d.mood = fitAlert.kind === 'done' ? 'stress' : d.mood;
@@ -511,7 +511,9 @@ document.documentElement.addEventListener('mouseleave', () => { if (!drag) setIn
 bridge.onCursor((p) => {
   const r = stage.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + r.height * 0.6;
   const dx = p.x - cx, dy = p.y - cy;
-  pet.lookAt(Math.hypot(dx, dy) > 1400 ? { x: 0, y: 0 } : { x: dx / 55, y: dy / 55 });
+  // follow the cursor anywhere on screen: the direction matters, not the distance (it used to stop past 1400 px)
+  const near = 24;                                          // right on top of the pet: look straight ahead
+  pet.lookAt(Math.abs(dx) < near && Math.abs(dy) < near ? { x: 0, y: 0 } : { x: Math.max(-1, Math.min(1, dx / 90)), y: Math.max(-1, Math.min(1, dy / 90)) });
 });
 bridge.onCommand((c) => { if (c.type === 'open') setMode('expanded', c.tab); });
 bridge.onEstimate((e) => {

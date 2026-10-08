@@ -1,4 +1,4 @@
-import { el, fmtTokens, fmtDur, fmtRange, fmtTime } from '../util.js';
+import { el, icon, fmtTokens, fmtDur, fmtRange, fmtTime } from '../util.js';
 
 /** How did the estimate hold up? 'in' = inside the typical range, 'near' = inside the worst-case bound, else 'off'. */
 export function accuracy(actual, b) {
@@ -55,7 +55,7 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
       if (o.busy) { optOut.replaceChildren(el('p', { class: 'muted', text: 'Asking Claude for a better version…' })); return; }
       if (!o.ok) { optOut.replaceChildren(el('p', { class: 'muted', style: 'color:var(--bad)', text: o.error })); return; }
       optOut.replaceChildren(...[
-        el('div', { class: 'label', text: `✨ Better next time · ${o.before} → ${o.after} tokens` }),
+        el('div', { class: 'label with-ic' }, icon('sparkle'), `Better next time · ${o.before} → ${o.after} tokens`),
         el('div', { class: 'rfull', text: o.optimized }),
         o.changes.length ? el('ul', { class: 'optlist' }, o.changes.map((c) => el('li', { text: c }))) : null,
         o.questions.length ? el('div', { class: 'optq' }, el('b', { text: 'Fill in before sending: ' }), o.questions.join(' · ')) : null,
@@ -63,13 +63,13 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
       ].filter(Boolean));
     };
     drawOpt();
-    actions.prepend(el('button', { class: 'btn sm', type: 'button', text: '✨ Optimize', title: 'Ask Claude for a clearer version of this prompt', onclick: stop(async () => {
+    actions.prepend(el('button', { class: 'btn sm', type: 'button', title: 'Ask Claude for a clearer version of this prompt', onclick: stop(async () => {
       const text = fulls.get(id) || texts.get(id) || r.preview || '';
       opts.set(id, { busy: true }); drawOpt();
       let res; try { res = await api.optimize(text); } catch { res = { ok: false, error: 'Something went wrong.' }; }
       opts.set(id, res && res.ok ? { ok: true, optimized: res.optimized, changes: res.changes, questions: res.questions, before: res.before.promptTokens, after: res.after.promptTokens } : { ok: false, error: (res && res.error) || 'Couldn’t optimize.' });
       drawOpt();
-    }) }));
+    }) }, icon('sparkle'), 'Optimize'));
     const detail = el('div', { class: 'rdetail', hidden: !isOpen, onclick: (e) => e.stopPropagation() }, full, actions, optOut, msg);
     const card = el('div', { class: 'run openable', role: 'button', 'aria-expanded': String(isOpen), tabindex: '0', title: isOpen ? '' : 'Click to see the full prompt' },
       el('div', { class: 'row' }, el('span', { class: 'muted', text: `${when === 'clock' ? fmtTime(r.start) : `${fmtDur((s.now - r.start) / 1000)} ago`}${where ? ` · ${where}` : ''}` }), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
