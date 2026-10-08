@@ -239,6 +239,9 @@ button.slot:hover { border-color: var(--line-strong); transform: translateY(-1px
 @keyframes bubbleIn { from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(.92); } }
 @keyframes bangPulse { 50% { transform: scale(1.14); box-shadow: 0 0 0 5px color-mix(in oklch, var(--bad) 22%, transparent); } }
 
+.bubble[data-kind="opt"] { border-color: var(--accent); max-width: 316px; } .bubble[data-kind="opt"]::after { border-color: var(--accent); }
+.bubble[data-kind="opt"] .bang { background: var(--accent); color: var(--accent-ink); animation: none; font-size: 0; } .bubble[data-kind="opt"] .bang::before { content: "✦"; font-size: 13px; }
+.bubble[data-kind="opt"] b, .bubble[data-kind="opt"] small { white-space: nowrap; }
 .bubble[data-kind="evo"] { border-color: var(--accent); } .bubble[data-kind="evo"]::after { border-color: var(--accent); }
 .bubble[data-kind="evo"] .bang { background: var(--accent); color: var(--accent-ink); animation: none; font-size: 13px; }
 .bubble[data-kind="evo"] .bang::before { content: "★"; } .bubble[data-kind="evo"] .bang { font-size: 0; } .bubble[data-kind="evo"] .bang::before { font-size: 13px; }

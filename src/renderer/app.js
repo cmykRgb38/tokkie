@@ -1,4 +1,4 @@
-import { $, clamp, fmtDur, fmtClockDur, fmtTokens, fmtRange, fmtRunOut, fmtRunOutShort } from './util.js';
+import { $, clamp, fmtDur, fmtClockDur, fmtTokens, fmtRange, fmtRunOut, fmtRunOutShort, chatAdvice } from './util.js';
 import { Pet, EMOTES, PERSONALITY } from './pet.js';
 import { usageView, kindUsed } from './views/usage.js';
 import { alertState, acknowledge } from './alerts.js';
@@ -22,6 +22,7 @@ let evoInit = false, evoBubbleUntil = 0, evoBubble = null;
 const BUBBLE_ZONE = 44;
 const TUCK = 26;                              // Dock-above: how far the pet's transparent headroom slides under the card (matches styles.css)                       // headroom above the pet reserved for the attention bubble (matches #stage padding-top)
 let acked = { doneEnd: null, ask: null }, forced = null;
+let optBubble = null;
 let booted = false, layout = 'dock', place = 'below', dockH = 0, pillsH = 30, dockKey = '', warned = null, warnBubble = null, fitAlert = null, lastNextFit = 'ok';
 let S = null, mode = 'collapsed', tab = 'usage', prevLast5h = null, lastEnd = null, doneUntil = 0, bubble = null, welcomed = false;
 
@@ -194,6 +195,8 @@ function dockLines(S, d, on = S.settings.dock || {}) {
     out.push({ k: 'pace', label: 'Pace', value: v, pill: v, tone, title: `${Math.round(m.pct)}% used with ${Math.round(p.elapsed)}% of the period gone${p.runOutAt ? ' — at this rate you run out before it resets' : ''}` });
   }
   if (on.status !== false) out.push({ k: 'status', label: 'Status', value: d.chipText, pill: d.chipText, tone: d.chipK === 'warn' ? 'warn' : '', dot: d.chipK === 'warn' ? 'warn' : S.active ? 'live' : null, title: d.text });
+  const adv = on.next !== false ? chatAdvice(S.nextRun, now) : null;
+  if (adv) out.push({ k: 'next', label: 'Next prompt', value: adv.value, pill: adv.value, tone: adv.tone, dot: adv.tone, title: `${adv.title}. ${adv.body}` });
   if (on.tokens !== false) out.push({ k: 'tokens', label: 'Today', pill: `${fmtTokens(S.tokens.today)} today`, value: fmtTokens(S.tokens.today) + (S.bridge && S.bridge.todayUsd >= 0.01 ? ` · $${S.bridge.todayUsd.toFixed(2)}` : ''), title: 'Tokens used today (Claude Code + Cowork)' + (S.bridge && S.bridge.todayUsd >= 0.01 ? '; dollars are exact Claude Code spend' : '') });
   if (on.lastPrompt !== false && S.lastPrompt && now - S.lastPrompt.at < 12 * 3600e3) out.push({ k: 'lastPrompt', label: 'Last prompt', value: `$${S.lastPrompt.usd.toFixed(2)}`, pill: `last $${S.lastPrompt.usd.toFixed(2)}`, title: 'Exact cost of your last Claude Code prompt' });
   if (on.context !== false && S.context && S.cache && now - S.cache.at < 3600e3) {
@@ -266,7 +269,7 @@ function checkFit(S) {
   lastNextFit = st;
 }
 // What each chip is, in plain words — shown when you hover it in the Claude bar.
-const BAR_LABEL = { usage: 'Plan usage', pace: 'Pace', status: 'Claude', tokens: 'Today', lastPrompt: 'Last prompt', context: 'Conversation size', cache: 'Prompt cache', agents: 'Sub-agents' };
+const BAR_LABEL = { usage: 'Plan usage', pace: 'Pace', status: 'Claude', next: 'Next prompt', tokens: 'Today', lastPrompt: 'Last prompt', context: 'Conversation size', cache: 'Prompt cache', agents: 'Sub-agents' };
 function barTip(l) {
   switch (l.k) {
     case 'usage': return `${l.value} used. ${l.title.replace(/^[^—]*— ?/, '') || 'From Claude’s own usage readings.'}`.trim();
@@ -277,6 +280,7 @@ function barTip(l) {
     case 'context': return `${l.value} tokens re-sent with every message. ${l.title}.`;
     case 'cache': return `${l.value}. ${l.title}.`;
     case 'agents': return `${l.value} — sub-agents working right now.`;
+    case 'next': return l.title;
     default: return l.title || '';
   }
 }
@@ -290,6 +294,7 @@ function barText(l) {
   if (l.k === 'context') return v.replace(/ · \d+%$/, '');
   if (l.k === 'cache') return v.replace(' left', '');
   if (l.k === 'agents') return v.replace(' running', '');
+  if (l.k === 'next') return v.replace(/ next$/, '');
   return v;
 }
 
@@ -297,6 +302,8 @@ function bandAlert(S) {
   if (fitAlert && Date.now() < fitAlert.until) return `${fitAlert.title} — ${fitAlert.sub}`;
   const nf = S.nextFit;
   if (nf && nf.status !== 'ok') return `${nf.status === 'no' ? 'Not enough left for a typical prompt' : 'Running low'} — ${fitWords(nf).line}`;
+  const adv = chatAdvice(S.nextRun, S.now);
+  if (adv && adv.tone === 'bad') return adv.alert;
   return '';
 }
 
@@ -350,7 +357,10 @@ function render() {
   const al = forced && Date.now() < forced.until ? { kind: forced.kind, since: S.now - 150000, quietMs: 90000 } : alertState(S, acked, enabled);
   const showBubble = S.settings.speechBubble !== false;
   if (al && al.kind === 'ask') { d.chipText = `Needs you? · quiet ${fmtDur(al.quietMs / 1000)}`; d.chipK = 'warn'; }   // one story: the chip, Dock and bubble agree
-  if (al && mode !== 'expanded') {
+  if (optBubble && Date.now() < optBubble.until && mode !== 'expanded') {
+    bubbleEl.hidden = false; bubbleEl.dataset.kind = 'opt'; bubbleTitle.textContent = optBubble.title;
+    bubbleSub.textContent = optBubble.undo ? 'Click to undo' : optBubble.sub;
+  } else if (al && mode !== 'expanded') {
     d.mood = al.kind === 'done' ? 'alert' : 'ask';
     bubbleEl.hidden = !showBubble; bubbleEl.dataset.kind = al.kind;
     if (al.kind === 'done') { bubbleTitle.textContent = 'Done — awaiting your response'; bubbleSub.textContent = `${fmtDur((S.now - al.since) / 1000)} ago · click to dismiss`; }
@@ -371,6 +381,8 @@ function render() {
   renderPills(d.pillList);
   const lines = S.settings.layout === 'dock' ? dockLines(S, d) : null;
   if (lines) renderDock(lines);
+  const stripLines = S.settings.strip ? lines || dockLines(S, d) : null;
+  if (stripLines) bridge.ui.strip?.({ items: stripLines.map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S) });
   applyLayout();
   const inClaude = !!lines && place === 'claude';
   bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S) });
@@ -411,7 +423,11 @@ function sendLayout(initial) {
 }
 
 function ackNow() { if (S) { acked = acknowledge(S, acked); forced = null; render(); } }
-bubbleEl.addEventListener('click', (e) => { e.stopPropagation(); ackNow(); });
+bubbleEl.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  if (optBubble && Date.now() < optBubble.until) { const undo = optBubble.undo; optBubble = null; if (undo) await bridge.ui.undoOptimize(); render(); return; }
+  ackNow();
+});
 
 async function setMode(next, toTab) {
   if (next === 'expanded') ackNow();       // opening the panel means you've seen it
@@ -505,7 +521,15 @@ bridge.onCursor((p) => {
   const near = 24;                                          // right on top of the pet: look straight ahead
   pet.lookAt(Math.abs(dx) < near && Math.abs(dy) < near ? { x: 0, y: 0 } : { x: Math.max(-1, Math.min(1, dx / 90)), y: Math.max(-1, Math.min(1, dy / 90)) });
 });
-bridge.onCommand((c) => { if (c.type === 'open') setMode('expanded', c.tab); });
+bridge.onCommand((c) => {
+  if (c.type === 'open') setMode('expanded', c.tab);
+  if (c.type === 'optToast') {        // clipboard Optimize (shortcut or the strip): say what happened next to the pet
+    optBubble = { ...c, until: Date.now() + (c.kind === 'busy' ? 120000 : c.undo ? 12000 : 7000) };
+    if (mode === 'expanded' && c.kind !== 'busy') views.plan.flash(`${c.title}${c.sub ? ` · ${c.sub}` : ''}`);
+    pet.emote(c.kind === 'ok' ? 'love' : c.kind === 'warn' ? 'surprised' : 'work', c.kind === 'busy' ? 8000 : 1500);
+    render();
+  }
+});
 bridge.onEstimate((e) => {
   if (!e.result) { views.plan.flash('Your clipboard is empty — copy your prompt first (⌘C / Ctrl+C), then press the shortcut again.'); return; }
   bubble = { until: Date.now() + 25000, result: e.result };
@@ -527,16 +551,16 @@ function firstRun() {
 const tourEl = $('#tour');
 let tourStep = -1;
 function tourSteps() {
-  const mac = S && S.platform === 'darwin', key = S ? prettyHotkey(S.settings.hotkey, mac) : '';
+  const mac = S && S.platform === 'darwin', key = S ? prettyHotkey(S.settings.hotkey, mac) : '', optKey = S ? prettyHotkey(S.settings.optimizeHotkey || '', mac) : '';
   const name = pet.spec ? pet.spec.name : 'Tokkie';
   return [
     { tab: 'usage', title: `Hi, I’m ${name}!`, body: 'I sit on your desktop and keep an eye on your Claude usage. Click me to play, right-click me to open or close this panel, and drag me anywhere.' },
     { tab: 'usage', title: 'Usage', body: 'How much of your plan you’ve used, live, and when you’d run out at this pace. I’ll warn you at 75% and 90%.' },
     { tab: 'plan', title: 'Estimate', body: `Copy a prompt and press ${key} from anywhere: I’ll guess how long it runs and whether it fits before your “Done by” time.` },
-    { tab: 'plan', title: 'Optimize', body: 'Optimize asks Claude to rewrite a prompt so the run wastes fewer steps. Clearer makes it precise (it may get a bit longer); Shorter trims words. Pick Haiku, Sonnet or Opus to do the rewrite. It’s here, on every prompt in History, and on the Claude bar.' },
+    { tab: 'plan', title: 'Optimize', body: `Optimize asks Claude to rewrite a prompt so the run wastes fewer steps. Clearer makes it precise (it may get a bit longer); Shorter trims words. Pick Haiku, Sonnet or Opus to do the rewrite. It’s here, on every prompt in History and on the Claude bar. In Chat or Cowork: copy your prompt, press ${optKey}, then paste.` },
     { tab: 'history', title: 'History', body: 'Every prompt for 90 days, by day. Click one to read it in full, copy it, or reopen that chat in Claude.' },
     { tab: 'pets', title: 'Pets', body: 'I eat tokens and evolve. Collect pets, pick my personality, and hunt for the 6 secret ones.' },
-    { tab: 'settings', title: 'Settings', body: 'Connect the Claude Code bridge for exact dollars, a bar above Claude’s prompt box, and one-click Optimize. You can replay this tour here any time.' },
+    { tab: 'settings', title: 'Settings', body: 'Connect the Claude Code bridge for exact dollars, a bar above Claude’s prompt box and one-click Optimize. Using Chat or Cowork? Turn on the floating strip. You can replay this tour here any time.' },
   ];
 }
 function prettyHotkey(acc, mac) { return acc.split('+').map((k) => ({ CommandOrControl: mac ? '⌘' : 'Ctrl', Command: '⌘', Control: mac ? '⌃' : 'Ctrl', Alt: mac ? '⌥' : 'Alt', Shift: mac ? '⇧' : 'Shift' }[k] || k)).join(mac ? ' ' : ' + '); }

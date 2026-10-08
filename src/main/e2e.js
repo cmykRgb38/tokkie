@@ -2,7 +2,7 @@
 // QA harness (TOKKIE_E2E=1): drives the real window through the main flows and asserts invariants. Exits non-zero on failure.
 const { app } = require('electron');
 
-exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) => {
+exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fireOptKey, getStrip }) => {
   const results = []; const errors = [];
   const ok = (name, cond, extra = '') => { results.push([name, !!cond]); console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${extra ? '  ' + extra : ''}`); };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -76,7 +76,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       const verdict = await js(`document.querySelector('#view-plan .verdict h3')?.textContent || null`);
       ok('typing a prompt produces a verdict', ['Go for it', 'Cutting it close', 'Better wait', 'Past your finish time'].includes(verdict), `"${verdict}"`);
       const rows = await js(`[...document.querySelectorAll('#view-plan .kv .row')].map(r=>r.textContent)`);
-      ok('estimate shows run time, tokens and plan impact', rows.length === 3 && /\d/.test(rows[0]) && /≈/.test(rows[1]), JSON.stringify(rows));
+      ok('estimate shows run time, tokens and plan impact', rows.length >= 3 && /\d/.test(rows[0]) && /≈/.test(rows[1]) && rows.some((r) => /^Limit impact/.test(r)), JSON.stringify(rows));
 
       const verdictBefore = verdict;
       await js(`(()=>{const f=document.querySelector('#view-plan input');f.value='6.00 am';f.dispatchEvent(new Event('change',{bubbles:true}));})()`); await wait(700);
@@ -261,6 +261,30 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
         ok('✨ Optimize on a past run shows a better version (or, without Claude Code, a request to paste into Chat)', okText(opt2), JSON.stringify(opt2).slice(0, 300));
       }
       clearInterval(fakeBridge);
+      // ✨ Optimize from the clipboard (the Chat / Cowork flow): copy → shortcut → paste; Undo restores your prompt
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(500);
+      await clipboard.writeText('fix the login thing pls'); fireOptKey(); await wait(bridgeOn ? 3000 : 900);
+      const afterOpt = await clipboard.readText();
+      const obub = await js(`({hidden:document.getElementById('bubble').hidden, kind:document.getElementById('bubble').dataset.kind, t:document.getElementById('bubble').textContent})`);
+      ok('the Optimize shortcut swaps the clipboard for a better prompt (or, without Claude Code, a request for Claude) and says so', afterOpt !== 'fix the login thing pls' && (bridgeOn ? /src\/auth\.ts/.test(afterOpt) : /Don't do the task yet/.test(afterOpt) && afterOpt.endsWith('fix the login thing pls')) && !obub.hidden && obub.kind === 'opt' && /Click to undo/.test(obub.t), JSON.stringify(obub).slice(0, 200));
+      await js(`window.tokkie.ui.undoOptimize()`); await wait(300);
+      ok('Undo puts the original prompt back on the clipboard', (await clipboard.readText()) === 'fix the login thing pls');
+      // the floating strip: same items as the Claude bar, Optimize button, remembers where you drag it
+      await js(`window.tokkie.setSettings({ strip: true })`); await wait(2500);
+      const sw = getStrip();
+      const sv = sw ? await sw.webContents.executeJavaScript(`({items:[...document.querySelectorAll('.it')].map(x=>x.dataset.key), opt:!!document.querySelector('button.opt'), w:innerWidth})`) : null;
+      ok('turning on the floating strip shows a bar with the Dock items and an Optimize button', !!sv && sv.items.includes('usage') && sv.opt, JSON.stringify(sv));
+      if (sw) {
+        const b0 = sw.getBounds();
+        await sw.webContents.executeJavaScript(`(()=>{const b=document.getElementById('bar');const o=(x,y)=>({bubbles:true,pointerId:3,button:0,screenX:x,screenY:y});const it=b.querySelector('.it');it.dispatchEvent(new PointerEvent('pointerdown',o(300,300)));b.dispatchEvent(new PointerEvent('pointermove',o(340,270)));b.dispatchEvent(new PointerEvent('pointerup',o(340,270)));})()`); await wait(600);
+        const b1 = sw.getBounds(), pos = settings.get('stripPos');
+        ok('dragging the strip moves it and remembers the spot', (b1.x !== b0.x || b1.y !== b0.y) && pos.x === b1.x && pos.y === b1.y, JSON.stringify([b0, b1, pos]));
+        await clipboard.writeText('make the button blue'); await sw.webContents.executeJavaScript(`document.querySelector('button.opt').click()`); await wait(bridgeOn ? 3000 : 900);
+        const tipTxt = await sw.webContents.executeJavaScript(`document.getElementById('tip').hidden ? '' : document.getElementById('tip').textContent`);
+        ok('the strip’s Optimize button works on the clipboard and reports back in the strip', /Optimiz|Copied a request/.test(tipTxt) && (await clipboard.readText()) !== 'make the button blue', tipTxt.slice(0, 120));
+      }
+      await js(`window.tokkie.setSettings({ strip: false })`); await wait(600);
+      ok('turning the strip off closes it', !getStrip());
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(300);
       // drag the panel's corner to make it bigger: the pet stays put and the size is remembered
       await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(700);

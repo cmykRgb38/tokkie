@@ -171,6 +171,34 @@ test('whole-run cost: estimates $ from your own past runs, only once there are 3
   for (let i = 0; i < 4; i++) eng.store.samples.push({ start: now - (i + 1) * 3600e3, chars: 200, duration: 300, headline: 50_000, tokens: 50_000, usd: 3 });
   const e = eng.estimate('fix the bug');
   assert.ok(e.cost && e.cost.n === 4);
-  assert.ok(Math.abs(e.cost.p25 - e.headline.p25 * 0.00006) < 1e-9 && e.cost.p75 >= e.cost.p25);
+  assert.ok(Math.abs(e.cost.p25 - e.tokens.p25 * 0.00006) < 1e-9 && e.cost.p75 >= e.cost.p25);
   eng.stop(); fs.rmSync(dir, { recursive: true });
+});
+
+test('chat-aware: a big chat costs more per prompt, and a cold cache adds a full rewrite of it', async () => {
+  const { dir, eng } = rig();
+  await eng.start();
+  const now = Date.now();
+  for (let i = 0; i < 20; i++) eng.store.samples.push({ start: now - (i + 1) * 3600e3, chars: 200, duration: 120, headline: 20_000, tokens: 40_000, steps: 8, usd: 1, cold: false });
+  eng.store.cacheBySession.set('s1', { at: now - 60e3, ttl: '5m', ctx: 600_000 });
+  const warm = eng.estimate('fix the bug', now);
+  assert.equal(warm.chat.cold, false); assert.equal(warm.chat.ctx, 600_000);
+  assert.ok(warm.chat.rereads.p50 > 1e6, 'every step re-reads the 600k chat');
+  assert.ok(warm.chat.here.p50 > 5 * warm.chat.fresh.p50 && warm.chat.cost.p50 > warm.chat.newCost.p50);
+  const cold = eng.estimate('fix the bug', now + 10 * 60e3);
+  assert.equal(cold.chat.cold, true);
+  assert.ok(cold.chat.freshHere.p50 - warm.chat.freshHere.p50 > 590_000, 'the expired cache re-writes the whole chat');
+  assert.ok(eng.snapshot(now).nextRun && eng.snapshot(now).nextRun.ctx === 600_000);
+  eng.stop(); fs.rmSync(dir, { recursive: true });
+});
+
+test('runs record the chat size at Enter, whether its cache was cold, and the steps taken', () => {
+  const { Store } = require('../src/core/store');
+  const st = new Store();
+  const t = Date.now() - 600e3, u = (id, ts, o) => ({ kind: 'usage', ts, sessionId: 's', id, model: 'm', input: 5, output: 50, cacheWrite: o.cw || 0, cacheRead: o.cr || 0, ending: !!o.end });
+  st.ingest(u('a', t, { cr: 300_000, end: true }));
+  st.ingest({ kind: 'prompt', ts: t + 30e3, sessionId: 's', chars: 40 });
+  st.ingest(u('b', t + 40e3, { cr: 300_000 })); st.ingest(u('c', t + 50e3, { cr: 300_000, end: true }));
+  const s = st.samples[st.samples.length - 1];
+  assert.equal(s.steps, 2); assert.equal(s.cold, false); assert.ok(s.ctx0 >= 300_000); assert.equal(s.cacheRead, 600_000);
 });

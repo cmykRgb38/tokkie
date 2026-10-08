@@ -35,5 +35,16 @@ contextBridge.exposeInMainWorld('tokkie', {
     redeem: (code) => ipcRenderer.invoke('pets:redeem', code),
     optimize: (text) => ipcRenderer.invoke('prompt:optimize', text),
     openClaude: () => ipcRenderer.invoke('ui:openClaude'),
+    optimizeClipboard: () => ipcRenderer.send('ui:optimizeClipboard'),
+    undoOptimize: () => ipcRenderer.invoke('opt:undo'),
+    strip: (p) => ipcRenderer.send('ui:strip', p),
+  },
+  stripUi: {
+    onStrip: on('strip'),
+    dragStart: () => ipcRenderer.send('strip:dragStart'),
+    dragMove: (d) => ipcRenderer.send('strip:dragMove', d),
+    dragEnd: () => ipcRenderer.send('strip:dragEnd'),
+    width: (w) => ipcRenderer.send('strip:width', w),
+    open: (tab) => ipcRenderer.send('strip:open', tab),
   },
 });

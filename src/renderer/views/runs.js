@@ -20,7 +20,7 @@ export const fmtUsdRange = (c) => (c.p75 < 0.01 ? '<$0.01' : `$${c.p25.toFixed(2
 export async function runGuess(api, text) {
   let e; try { e = await api.estimate(text); } catch { return null; }
   if (!e || !e.headline) return null;
-  return el('p', { class: 'muted', text: `A run with this prompt: ≈ ${fmtTokens(e.headline.p25)}–${fmtTokens(e.headline.p75)} tokens${e.cost ? ` · ${fmtUsdRange(e.cost)} at API prices` : ''}, judging by your past runs. A clearer prompt mostly saves by avoiding do-overs, which no estimate can see in advance.` });
+  return el('p', { class: 'muted', text: `A run with this prompt${e.chat ? ' in your current chat' : ''}: ≈ ${fmtTokens(e.headline.p25)}–${fmtTokens(e.headline.p75)} tokens${e.cost ? ` · ${fmtUsdRange(e.cost)} at API prices` : ''}, judging by your past runs. A clearer prompt mostly saves by avoiding do-overs, which no estimate can see in advance.` });
 }
 
 /** No Claude Code (Chat / Cowork users): copy the request, paste it into Claude, get the better prompt back there. */
@@ -30,7 +30,8 @@ export function askInChat(api, r, note) {
     el('div', { class: 'row', style: 'gap:6px;justify-content:flex-start;margin-top:6px' },
       el('button', { class: 'btn sm primary', type: 'button', text: 'Copy request', onclick: async (e) => { e.stopPropagation(); await api.copyText(r.chat); note('Copied. Paste it into a new Claude chat and send it.'); } }),
       el('button', { class: 'btn sm', type: 'button', text: 'Open Claude', onclick: async (e) => { e.stopPropagation(); const o = await api.openClaude(); if (!o || !o.ok) note('Couldn’t open Claude. Is the desktop app installed?'); } })),
-    el('p', { class: 'muted', text: 'It asks Claude to rewrite your prompt, not to do the task. It uses a little of your usage, like any message.' }));
+    el('p', { class: 'muted', text: 'It asks Claude to rewrite your prompt, not to do the task. It uses a little of your usage, like any message.' }),
+    r.tip ? el('p', { class: 'muted', text: r.tip }) : null);
 }
 
 export function runCards(api, redraw, { when = 'ago' } = {}) {
@@ -88,7 +89,7 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
       const text = fulls.get(id) || texts.get(id) || r.preview || '';
       opts.set(id, { busy: true }); drawOpt();
       let res; try { res = await api.optimize(text); } catch { res = { ok: false, error: 'Something went wrong.' }; }
-      opts.set(id, res && res.ok ? { ok: true, optimized: res.optimized, changes: res.changes, questions: res.questions, before: res.before.promptTokens, after: res.after.promptTokens } : { ok: false, error: (res && res.error) || 'Couldn’t optimize.', chat: res && res.chat });
+      opts.set(id, res && res.ok ? { ok: true, optimized: res.optimized, changes: res.changes, questions: res.questions, before: res.before.promptTokens, after: res.after.promptTokens } : { ok: false, error: (res && res.error) || 'Couldn’t optimize.', chat: res && res.chat, tip: res && res.tip });
       drawOpt();
       if (res && res.ok) { const g = await runGuess(api, res.optimized); if (g && opts.get(id)?.ok) { opts.get(id).guess = g.textContent; drawOpt(); } }
     }) }, icon('sparkle'), 'Optimize'));

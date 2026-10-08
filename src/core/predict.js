@@ -9,7 +9,7 @@
 const { complexityHint } = require('./tokens');
 
 const Z = { p25: -0.6745, p50: 0, p75: 0.6745, p90: 1.2816 };
-const PRIORS = { duration: { mu: Math.log(110), sigma: 1.0 }, tokens: { mu: Math.log(60000), sigma: 1.1 }, headline: { mu: Math.log(25000), sigma: 1.1 } };
+const PRIORS = { duration: { mu: Math.log(110), sigma: 1.0 }, tokens: { mu: Math.log(60000), sigma: 1.1 }, headline: { mu: Math.log(25000), sigma: 1.1 }, steps: { mu: Math.log(6), sigma: 1.0 } };
 const MIN_REGRESSION = 14;
 const SIGMA_INFLATE = 1.12;   // in-sample residuals understate out-of-sample error (measured by backtest on real logs)
 const LIMITS = [[0, 0.6], [0, 2], [0, 0.8]];     // chars, hint, previous-run coefficients
@@ -89,12 +89,17 @@ function predict(samples, text, chars = (text || '').length, ctx = {}) {
   const fd = fit(samples, 'duration', PRIORS.duration);
   const ft = fit(samples, 'tokens', PRIORS.tokens);
   const fh = fit(samples, 'headline', PRIORS.headline);
+  // For "what will it cost in THIS chat": how many steps (each one re-reads the chat), and the fresh tokens of a run
+  // whose cache was still warm (a cold cache's full rewrite is added back from the chat's actual size).
+  const fs = fit(samples.filter((s) => s.steps > 0), 'steps', PRIORS.steps);
+  const fw = fit(samples.filter((s) => !s.cold), 'headline', PRIORS.headline);
   const damp = n >= 30 ? 0.5 : n >= 8 ? 0.75 : 1;
   const prior = Math.pow(hint, damp);                        // wording prior, used only where the model didn't learn it
   const x = (f) => features(chars, hint, prev, f.prevMean || ln(35));
   const multD = fd.usesHint ? 1 : prior, multT = ft.usesHint ? 1 : prior, multH = fh.usesHint ? 1 : prior;
   const confidence = n < 8 ? 'low' : n < 30 ? 'medium' : 'high';
-  return { duration: bands(fd, x(fd), multD), tokens: bands(ft, x(ft), multT), headline: bands(fh, x(fh), multH), n, confidence, method: fd.method, hint: prior };
+  return { duration: bands(fd, x(fd), multD), tokens: bands(ft, x(ft), multT), headline: bands(fh, x(fh), multH),
+    steps: bands(fs, x(fs), fs.usesHint ? 1 : prior), headlineWarm: bands(fw, x(fw), fw.usesHint ? 1 : prior), n, confidence, method: fd.method, hint: prior };
 }
 
 /**

@@ -32,7 +32,8 @@ class Store {
     if (this.sampleKeys.has(key)) {
       // a run saved by an older version, seen again in the logs: fill in what it didn't record (prompt preview, folder)
       const old = this.samples.find((x) => x.sessionId === s.sessionId && x.start === s.start);
-      if (old) for (const f of ['preview', 'find', 'cwd', 'source', 'file', 'uuid']) if (!old[f] && s[f]) old[f] = s[f];
+      if (old) for (const f of ['preview', 'find', 'cwd', 'source', 'file', 'uuid', 'ctx0', 'steps', 'cacheRead', 'cacheWrite']) if (!old[f] && s[f]) old[f] = s[f];
+        if (old.cold == null && s.cold != null) old.cold = s.cold;
       return false;
     }
     this.sampleKeys.add(key);
@@ -50,7 +51,10 @@ class Store {
     const turn = this.sessions.get(ev.sessionId);
 
     if (ev.kind === 'prompt') {
-      this.sessions.set(ev.sessionId, { start: ev.ts, chars: ev.chars, hint: ev.hint || 1, lastTs: ev.ts, tokens: 0, output: 0, prev: this.lastDur.get(ev.sessionId) || 0, preview: ev.preview || '', find: ev.find || '', cwd: ev.cwd || '', source: ev.source || '', file: ev.file || '', uuid: ev.uuid || '' });
+      // How big the conversation already is when you hit Enter (every step re-reads it), and whether its cache went cold.
+      const c = this.cacheBySession.get(ev.sessionId);
+      const ctx0 = c ? c.ctx : 0, cold = !c || ev.ts - c.at > (c.ttl === '5m' ? 5 * 60e3 : 60 * 60e3);
+      this.sessions.set(ev.sessionId, { ctx0, cold, start: ev.ts, chars: ev.chars, hint: ev.hint || 1, lastTs: ev.ts, tokens: 0, output: 0, prev: this.lastDur.get(ev.sessionId) || 0, preview: ev.preview || '', find: ev.find || '', cwd: ev.cwd || '', source: ev.source || '', file: ev.file || '', uuid: ev.uuid || '' });
     } else if (ev.kind === 'interrupt') {
       this.sessions.delete(ev.sessionId);
     } else if (ev.kind === 'usage') {
@@ -67,7 +71,7 @@ class Store {
         turn.lastTs = Math.max(turn.lastTs, ev.ts);
         turn.msgs = turn.msgs || new Map();
         const old = turn.msgs.get(ev.id);
-        if (!old || ev.output >= old.out) turn.msgs.set(ev.id, { w: weighted(ev), out: ev.output, h: headline(ev) });
+        if (!old || ev.output >= old.out) turn.msgs.set(ev.id, { w: weighted(ev), out: ev.output, h: headline(ev), cr: ev.cacheRead, cw: ev.cacheWrite, side: !!ev.sidechain });
         if (ev.ending) this._finish(ev.sessionId, turn, ev.ts);
       }
     }
@@ -79,10 +83,11 @@ class Store {
     this.lastTurnEnd = endTs;
     if (ms < MIN_TURN_MS || ms > MAX_TURN_MS) return;
     let tokens = 0, output = 0, head = 0;
-    for (const m of (turn.msgs || new Map()).values()) { tokens += m.w; output += m.out; head += m.h; }
+    let steps = 0, cacheRead = 0, cacheWrite = 0;
+    for (const m of (turn.msgs || new Map()).values()) { tokens += m.w; output += m.out; head += m.h; cacheRead += m.cr || 0; cacheWrite += m.cw || 0; if (!m.side) steps++; }
     this.lastDur.set(sessionId, ms / 1000);
     if (endTs >= this.recent.end) this.recent = { dur: ms / 1000, end: endTs };
-    const sample = { sessionId, start: turn.start, chars: turn.chars, hint: turn.hint, prev: turn.prev, duration: ms / 1000, tokens, headline: head, output, preview: turn.preview || '', find: turn.find || '', cwd: turn.cwd || '', source: turn.source || '', file: turn.file || '', uuid: turn.uuid || '' };
+    const sample = { sessionId, start: turn.start, chars: turn.chars, hint: turn.hint, prev: turn.prev, duration: ms / 1000, tokens, headline: head, output, ctx0: turn.ctx0 || 0, cold: !!turn.cold, steps, cacheRead, cacheWrite, preview: turn.preview || '', find: turn.find || '', cwd: turn.cwd || '', source: turn.source || '', file: turn.file || '', uuid: turn.uuid || '' };
     if (this.addSample(sample) && this.onSample) this.onSample(sample);
   }
 

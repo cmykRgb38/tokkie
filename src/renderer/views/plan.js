@@ -1,4 +1,4 @@
-import { el, icon, fmtTokens, fmtDur, fmtRange, fmtTime, clamp, parseTime, labelForHHMM } from '../util.js';
+import { el, icon, fmtTokens, fmtDur, fmtRange, fmtTime, clamp, parseTime, labelForHHMM, chatAdvice } from '../util.js';
 import { runCards, runGuess, askInChat, fmtUsdRange } from './runs.js';
 
 export { accuracy } from './runs.js';
@@ -123,13 +123,18 @@ export function planView(root, api) {
         el('h3', { text: f.status === 'no' ? 'Not enough left for this prompt' : 'This prompt may not fit' }),
         el('p', { text: f.left <= 0.05 ? `Your ${f.label} is used up.` : `It needs about ${need} and only ${left} of your ${f.label} is left${f.status === 'no' ? ' — it will likely stop partway.' : ' — a heavy run could hit the limit.'} Split it into a smaller first step${f.id === 'five' ? ' or wait for the 5-hour reset' : ''}.` }))
       : null;
+    // The chat it would go into: a long one (or one whose cache expired) can multiply the cost — say so, with the fix.
+    const adv = chatAdvice(r.chat, r.now, { prompt: true });
+    const chatBox = adv ? el('div', { class: 'verdict', 'data-k': adv.tone }, el('span', { class: 'dot', 'data-k': adv.tone }), el('h3', { text: adv.title }), el('p', { text: adv.body })) : null;
     out.replaceChildren(
       ...(fitBox ? [fitBox] : []),
       el('div', { class: 'verdict', 'data-k': k }, el('span', { class: 'dot', 'data-k': k }), el('h3', { text: title }), el('p', { text: msg }), tl),
+      ...(chatBox ? [chatBox] : []),
       el('div', { class: 'kv' },
         el('div', { class: 'row' }, el('span', { text: 'Run time' }), el('span', { text: fmtRange(d.p25, d.p75) })),
         el('div', { class: 'row' }, el('span', { text: 'Tokens it will use' }), el('span', { text: `≈ ${fmtTokens(r.headline.p25)}–${fmtTokens(r.headline.p75)}` })),
-        r.cost ? el('div', { class: 'row' }, el('span', { text: 'Cost at API prices' }), el('span', { text: `≈ ${fmtUsdRange(r.cost)}`, title: `From the $ per token of your last ${r.cost.n} runs (Claude Code’s own figures). On a Pro or Max plan this comes out of your usage limit, not your wallet.` })) : null,
+        r.chat && r.chat.ctx >= 20e3 ? el('div', { class: 'row' }, el('span', { text: 'Re-reading the chat' }), el('span', { text: `≈ ${fmtTokens(r.chat.rereads.p25)}–${fmtTokens(r.chat.rereads.p75)}`, title: `Every step re-sends your current ${fmtTokens(r.chat.ctx)} chat. Re-reads from cache cost a tenth of the price, but they add up.` })) : null,
+        r.cost && !(f && f.usd) ? el('div', { class: 'row' }, el('span', { text: 'Cost at API prices' }), el('span', { text: `≈ ${fmtUsdRange(r.cost)}`, title: `From the $ per token of your own Claude Code runs${r.chat ? ', in the chat you were just in' : ''}. On a Pro or Max plan this comes out of your usage limit, not your wallet.` })) : null,
         f ? el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: `≈ ${need} · ${left} left`, title: `${f.label}: this prompt’s likely share vs what’s left`, style: f.status === 'no' ? 'color:var(--bad)' : f.status === 'risky' ? 'color:var(--warn)' : '' }))
           : el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: share ? `≈ ${shareTxt}` : 'connect limits for %', style: share ? '' : 'font-weight:500;color:var(--ink-3)' }))),
       el('p', { class: 'muted', text: conf }));

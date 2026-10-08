@@ -33,7 +33,7 @@ export function settingsView(root, api) {
   };
   const layout = mkSeg([['dock', 'Dock'], ['pills', 'Pills'], ['pet', 'Pet only']], 'layout');
   const DOCK_ITEMS = [['usage', 'Usage %', 'Your main limit, live (≈ = estimated since Claude’s last reading).'], ['pace', 'Pace', 'Ahead of or behind the clock, and when you’d run out.'],
-    ['status', 'Status', 'Working / done / idle.'], ['tokens', 'Tokens today', 'Claude Code + Cowork.'], ['lastPrompt', 'Last prompt cost', 'Exact $ of your last Claude Code prompt (needs the bridge).'],
+    ['status', 'Status', 'Working / done / idle.'], ['next', 'Next prompt', 'Shows up when a long chat or an expired cache makes your next prompt pricey, with what a new chat would cost.'], ['tokens', 'Tokens today', 'Claude Code + Cowork.'], ['lastPrompt', 'Last prompt cost', 'Exact $ of your last Claude Code prompt (needs the bridge).'],
     ['context', 'Context', 'How full the current conversation is.'], ['cache', 'Cache timer', 'Minutes left on the prompt cache — reply before it expires to save tokens.'], ['agents', 'Agents', 'Sub-agents running (needs the bridge).']];
   const dockToggles = DOCK_ITEMS.map(([k, l, d]) => {
     const sw = el('button', { class: 'switch', type: 'button', role: 'switch', 'aria-label': l, 'aria-checked': 'false' });
@@ -69,25 +69,36 @@ export function settingsView(root, api) {
   const theme = mkSeg([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], 'theme');
   const size = mkSeg([[5, 'S'], [6, 'M'], [8, 'L']], 'scale', Number);
 
-  const hotBtn = el('button', { class: 'kbd', type: 'button', style: 'cursor:pointer' });
-  const hotMsg = el('div', { class: 'd', style: 'color:var(--bad)', hidden: true });
-  const hotStatus = el('div', { class: 'd' });
-  let recording = false, S = null;
-  hotBtn.addEventListener('click', () => { recording = true; hotBtn.textContent = 'Press keys…'; hotBtn.focus(); });
-  hotBtn.addEventListener('blur', () => { recording = false; if (S) hotBtn.textContent = prettyKey(S.settings.hotkey, S.platform); });
-  hotBtn.addEventListener('keydown', async (e) => {
-    if (!recording) return;
-    e.preventDefault();
-    if (e.key === 'Escape') { hotBtn.blur(); return; }
-    if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
-    const mods = []; const mac = S && S.platform === 'darwin';
-    if (e.metaKey) mods.push(mac ? 'Command' : 'Super'); if (e.ctrlKey) mods.push(mac ? 'Control' : 'CommandOrControl'); if (e.altKey) mods.push('Alt'); if (e.shiftKey) mods.push('Shift');
-    if (!mods.length) { hotMsg.hidden = false; hotMsg.textContent = 'Include ⌘/Ctrl, Alt or Shift.'; return; }
-    const named = { ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', ' ': 'Space', Escape: 'Esc' };
-    const key = e.code.startsWith('Key') ? e.code.slice(3) : e.code.startsWith('Digit') ? e.code.slice(5) : named[e.key] || (e.key.length === 1 ? e.key.toUpperCase() : e.key);
-    const r = await api.setSettings({ hotkey: [...mods, key].join('+') });
-    hotMsg.hidden = r.ok; hotMsg.textContent = r.error || ''; hotBtn.blur();
-  });
+  let S = null;
+  /** A click-to-record shortcut button for one setting (the Estimate and the Optimize shortcuts). */
+  function recorder(settingKey) {
+    const btn = el('button', { class: 'kbd', type: 'button', style: 'cursor:pointer' });
+    const msg = el('div', { class: 'd', style: 'color:var(--bad)', hidden: true });
+    const rec = { btn, msg, recording: false };
+    btn.addEventListener('click', () => { rec.recording = true; btn.textContent = 'Press keys…'; btn.focus(); });
+    btn.addEventListener('blur', () => { rec.recording = false; if (S) btn.textContent = prettyKey(S.settings[settingKey], S.platform); });
+    btn.addEventListener('keydown', async (e) => {
+      if (!rec.recording) return;
+      e.preventDefault();
+      if (e.key === 'Escape') { btn.blur(); return; }
+      if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+      const mods = []; const mac = S && S.platform === 'darwin';
+      if (e.metaKey) mods.push(mac ? 'Command' : 'Super'); if (e.ctrlKey) mods.push(mac ? 'Control' : 'CommandOrControl'); if (e.altKey) mods.push('Alt'); if (e.shiftKey) mods.push('Shift');
+      if (!mods.length) { msg.hidden = false; msg.textContent = 'Include ⌘/Ctrl, Alt or Shift.'; return; }
+      const named = { ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', ' ': 'Space', Escape: 'Esc' };
+      const key = e.code.startsWith('Key') ? e.code.slice(3) : e.code.startsWith('Digit') ? e.code.slice(5) : named[e.key] || (e.key.length === 1 ? e.key.toUpperCase() : e.key);
+      const r = await api.setSettings({ [settingKey]: [...mods, key].join('+') });
+      msg.hidden = r.ok; msg.textContent = r.error || ''; btn.blur();
+    });
+    return rec;
+  }
+  const hot = recorder('hotkey'), optHot = recorder('optimizeHotkey');
+  const hotBtn = hot.btn, hotMsg = hot.msg;
+  const hotStatus = el('div', { class: 'd' }), optHotStatus = el('div', { class: 'd' });
+  const optHotRow = el('div', { class: 'field' },
+    el('div', { class: 'field-head' }, el('div', { class: 'ftext' }, el('div', { class: 't', text: 'Optimize shortcut' }), el('div', { class: 'd', text: 'For Chat and Cowork: copy your prompt, press this, then paste. The better version replaces it on your clipboard.' })), optHot.btn),
+    optHotStatus, optHot.msg);
+  const stripT = toggle('Floating strip', 'A slim bar with the same items, tips and Optimize. Drag it just above Chat’s or Cowork’s prompt box; it stays there.', 'strip', api);
 
   const clip = toggle('Watch clipboard', 'Estimate automatically whenever you copy a long prompt.', 'clipboardWatch', api);
   const alertT = toggle('Pet reacts when Claude needs me', 'It hops and shows a blinking ! when a run finishes or goes quiet.', 'alertBubble', api);
@@ -112,8 +123,8 @@ export function settingsView(root, api) {
     hotStatus, hotMsg);
   root.append(el('div', { class: 'settings' },
     group('Claude Code', bridgeRow, spendRow, dayRow),
-    group('Prompt optimizer', optRow, optModeRow, optBtnT.row),
-    group('On your desktop', layoutRow, dockBox),
+    group('Prompt optimizer', optRow, optModeRow, optBtnT.row, optHotRow),
+    group('On your desktop', layoutRow, dockBox, stripT.row),
     group('Appearance', field('Theme', null, theme.node), field('Pet size', null, size.node)),
     group('Estimate', hotRow, clip.row),
     group('Alerts', alertT.row, bubbleT.row, notify.row),
@@ -153,7 +164,12 @@ export function settingsView(root, api) {
       if (document.activeElement !== dayIn) dayIn.value = nextReset(st.resetDay || 1, Date.now());
       { const d = new Date(nextReset(st.resetDay || 1, Date.now()) + 'T00:00:00'); dayHint.textContent = `${d.toLocaleDateString([], { day: 'numeric', month: 'long' })} · repeats every month`; }
       dayRow.hidden = !(st.spendLimitUsd > 0);
-      if (!recording) hotBtn.textContent = prettyKey(st.hotkey, s.platform);
+      if (!hot.recording) hotBtn.textContent = prettyKey(st.hotkey, s.platform);
+      if (!optHot.recording) optHot.btn.textContent = prettyKey(st.optimizeHotkey, s.platform);
+      const ok2 = !s.optKey || s.optKey.ok;
+      optHotStatus.textContent = ok2 ? '● Active' : '● Not active — another app is using it. Record a different one.';
+      optHotStatus.style.color = ok2 ? 'var(--good)' : 'var(--bad)';
+      stripT.sw.setAttribute('aria-checked', String(!!st.strip));
       const hk = s.hotkey, ok = !hk || hk.ok, fresh = hk && hk.firedAt && Date.now() - hk.firedAt < 15000;
       hotStatus.textContent = !ok ? '● Not active — another app is using it. Record a different one.'
         : fresh ? '✓ Received! The shortcut works.' : hk && hk.firedAt ? `● Active · last used ${fmtDur((Date.now() - hk.firedAt) / 1000)} ago` : '● Active — press it now to test';

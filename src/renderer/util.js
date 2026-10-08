@@ -76,3 +76,26 @@ export function fmtRunOutShort(ts, now = Date.now()) {
   const f = fmtRunOut(ts, now);
   return /^(today|tomorrow)/.test(f) ? f : f.split(',')[0];
 }
+
+const usd = (v) => (v < 0.01 ? '<$0.01' : v < 10 ? `$${v.toFixed(2)}` : `$${Math.round(v)}`);
+/**
+ * Plain words for what the chat you're in adds to a prompt's cost (engine's `chat` / `nextRun`): every step re-reads
+ * the whole conversation, and an expired cache makes the first step re-write all of it. null when it doesn't matter.
+ */
+export function chatAdvice(c, now = Date.now(), { prompt = false } = {}) {
+  if (!c) return null;
+  const times = Math.max(1, c.times || 1), big = times >= 2, coldBig = c.cold && c.ctx >= 50e3;
+  if (!big && !coldBig) return null;
+  const size = fmtTokens(c.ctx), where = c.where ? ` (${c.where}${c.source === 'cowork' ? ' · Cowork' : ''})` : '';
+  const soon = !c.cold && c.expiresAt - now < 10 * 60e3 ? Math.max(1, Math.ceil((c.expiresAt - now) / 60e3)) : 0;
+  const here = c.cost ? `≈ ${usd(c.cost.p50)}` : '', fresh = c.newCost ? `≈ ${usd(c.newCost.p50)}` : '';
+  const title = c.cold ? `Cache expired on this ${size} chat` : `This ${size} chat makes prompts ~${Math.round(times)}× pricier`;
+  const body = `Your current chat${where} is ${size} tokens, and every step of a run re-reads all of it.`
+    + (c.cold ? ` Its cache has expired, so the first step also re-writes all ${size} at full price.` : soon ? ` Its cache expires in ${soon} min: send soon, or start fresh.` : '')
+    + (here && fresh ? ` ${prompt ? 'This prompt' : 'A typical run'} here ${here}; in a new chat ${fresh}.` : ` About ${Math.round(times)}× the usage of the same prompt in a new chat.`)
+    + ' In Claude Code type /clear (fresh) or /compact (keeps a summary); in Chat or Cowork start a new chat.';
+  const value = here ? `${here} next` : `~${Math.round(times)}× new chat`;
+  const alert = c.cold ? `Cache expired on this ${size} chat: the next message re-writes it all${here ? ` (${here})` : ''}. /compact or a new chat is cheaper.`
+    : `This ${size} chat makes each prompt ~${Math.round(times)}× pricier than a new one${here ? ` (${here} vs ${fresh})` : ''}.`;
+  return { title, body, value, alert, tone: c.cold || times >= 5 ? 'bad' : 'warn', usd };
+}

@@ -14,6 +14,7 @@ const { buildMeters } = require('./meters');
 const { tokensPer100, liveEstimate } = require('./calibrate');
 const { evolutionFor } = require('./evolution');
 const { headline } = require('./parser');
+const NEW_CHAT_CTX = 20000;     // what a brand-new conversation re-sends each step (system prompt + tools), roughly
 const { SpendLedger } = require('./spend');
 const { BridgeReader } = require('./bridge');
 const { paceOf } = require('./pace');
@@ -266,6 +267,13 @@ class Engine extends EventEmitter {
     const recent = this.store.samples.slice(-20).map((x) => x.tokens).filter((x) => x > 0).sort((a, b) => a - b);
     const typical = recent.length >= 3 ? { p50: recent[Math.floor(recent.length / 2)], p75: recent[Math.floor(recent.length * 0.75)] } : null;
     const nextFit = typical ? this._fit(typical, meters, now) : null;
+    // A typical prompt in the chat you were just in: what that chat's size (and a cold cache) adds — for the Dock, bar and strip.
+    let nextRun = null;
+    if (cache && cache.ctxTokens > 0) {
+      const chars = this.store.samples.slice(-40).map((x) => x.chars).sort((a, b) => a - b);
+      const run = this._chatRun(predict(this.store.samples, '', chars.length ? chars[Math.floor(chars.length / 2)] : 200), now);
+      if (run) { const rate = this._usdRate(); if (rate) this._price(run, rate); nextRun = run; }
+    }
     const turns = this.bridge.allTurns();
     const lastPrompt = turns.length ? turns[turns.length - 1] : null;
     const eta = active ? predict(this.store.samples, '', active.chars, { prev: active.prev || 0, hint: active.hint }).duration : null;
@@ -276,7 +284,7 @@ class Engine extends EventEmitter {
       spark: t.spark,
       limits: lim, fallback, block: t.block,
       meters, desktopSeen: !!this.desktop, manualCount: (this.settings.get('manualReadings') || []).length, evolution: evolutionFor(this.eaten()),
-      nextFit, cache, context: ctx, agents: fresh ? fresh.agentsRunning : 0, lastPrompt,
+      nextFit, nextRun, cache, context: ctx, agents: fresh ? fresh.agentsRunning : 0, lastPrompt,
       bridge: { seen: !!br, live: !!fresh, since: this.ledger.state.bridgeSince || 0, todayUsd: this.ledger.since(startOfDay(now)) },
       runs: this.recentRuns(8, turns), k5: (this.settings.get('calib').five || {}).k || null,
       samples: this.store.samples.length,
@@ -356,6 +364,38 @@ class Engine extends EventEmitter {
   }
 
   /** The planner: tokens, duration range, share of the limit, and the go/no-go verdict. */
+  /** $ per weighted token, from your own Claude Code runs with an exact cost (needs 3+). Weighted = cache reads at 10%. */
+  _usdRate() {
+    const r = this.store.samples.slice(-120).filter((x) => Number.isFinite(x.usd) && x.usd > 0 && x.tokens > 0).map((x) => x.usd / x.tokens).sort((a, b) => a - b);
+    return r.length >= 3 ? { perToken: r[Math.floor(r.length / 2)], n: r.length } : null;
+  }
+
+  _price(run, rate) {
+    run.cost = { p25: run.here.p25 * rate.perToken, p50: run.here.p50 * rate.perToken, p75: run.here.p75 * rate.perToken };
+    run.newCost = { p25: run.fresh.p25 * rate.perToken, p50: run.fresh.p50 * rate.perToken, p75: run.fresh.p75 * rate.perToken };
+    return run;
+  }
+
+  /**
+   * The chat you're most likely about to send into (the most recently active one), and what it adds: every step of a
+   * run re-reads the whole conversation (measured: cache reads = steps × chat size), and once its cache has expired the
+   * first step writes the whole chat again at full price. Compared with the same prompt in a fresh chat.
+   */
+  _chatRun(pred, now = this.now()) {
+    const c = this.store.cacheView(now);
+    if (!c || !(c.ctxTokens > 0)) return null;
+    const ctx = c.ctxTokens, cold = now > c.expiresAt;
+    const q = (f) => ({ p25: f('p25'), p50: f('p50'), p75: f('p75') });
+    const freshHere = q((k) => pred.headlineWarm[k] + (cold ? ctx : 0));
+    const rereads = q((k) => pred.steps[k] * ctx);
+    const here = q((k) => freshHere[k] + 0.1 * rereads[k]);
+    const fresh = q((k) => pred.headlineWarm[k] + 0.1 * pred.steps[k] * NEW_CHAT_CTX);
+    const last = [...this.store.samples].reverse().find((x) => x.sessionId === c.sessionId);
+    const where = last ? (last.cwd ? path.basename(last.cwd) : '') : '';
+    return { sessionId: c.sessionId, ctx, cold, expiresAt: c.expiresAt, where, source: last ? last.source || '' : '', steps: pred.steps, freshHere, rereads, here, fresh,
+      times: here.p50 / Math.max(1, fresh.p50) };
+  }
+
   estimate(text, now = this.now()) {
     text = String(text || '');
     const chars = text.length;
@@ -365,14 +405,15 @@ class Engine extends EventEmitter {
     const plan = planVerdict(pred, now, finishBy, this.settings.get('bufferMin'));
     this._remember(chars, pred, now);
     const k = (this.settings.get('calib').five || {}).k;
-    const share = k ? { lo: (pred.tokens.p25 / k) * 100, mid: (pred.tokens.p50 / k) * 100, hi: (pred.tokens.p75 / k) * 100 } : null;
-    const fit = this._fit(pred.tokens, this.snapshot(now).meters, now);
-    // What the whole run would cost at API prices: your own past runs' $ per token (Claude Code's figures), ≥3 runs.
-    const rates = this.store.samples.slice(-80).filter((x) => Number.isFinite(x.usd) && x.usd > 0 && x.headline > 0).map((x) => x.usd / x.headline).sort((a, b) => a - b);
-    const rate = rates.length >= 3 ? rates[Math.floor(rates.length / 2)] : null;
-    const cost = rate ? { p25: pred.headline.p25 * rate, p75: pred.headline.p75 * rate, n: rates.length } : null;
-    return { chars, promptTokens: estimateTokens(text), duration: pred.duration, tokens: pred.tokens, headline: pred.headline, share, fit, cost, confidence: pred.confidence, n: pred.n, method: pred.method, plan, finishBy, now };
+    const chat = this._chatRun(pred, now);
+    const tok = chat ? chat.here : pred.tokens;
+    const share = k ? { lo: (tok.p25 / k) * 100, mid: (tok.p50 / k) * 100, hi: (tok.p75 / k) * 100 } : null;
+    const fit = this._fit(tok, this.snapshot(now).meters, now);
+    const rate = this._usdRate();
+    const cost = rate ? { p25: tok.p25 * rate.perToken, p75: tok.p75 * rate.perToken, n: rate.n } : null;
+    if (chat && rate) this._price(chat, rate);
+    return { chars, promptTokens: estimateTokens(text), duration: pred.duration, tokens: pred.tokens, headline: chat ? chat.freshHere : pred.headline, share, fit, cost, chat, confidence: pred.confidence, n: pred.n, method: pred.method, plan, finishBy, now };
   }
 }
 
-module.exports = { Engine };
+module.exports = { Engine, NEW_CHAT_CTX };
