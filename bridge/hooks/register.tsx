@@ -206,6 +206,11 @@ async function undoOptimize($: Engine) {
   if (cur.original) await $.prompt.fill({ text: cur.original, mode: 'replace' })
   await update($, opt, (o) => ({ busy: false, model: o.model, mode: o.mode }))
 }
+const OPT_CHOICES = ['clearer', 'shorter'].flatMap((md) => MODELS.map((ml) => ({ value: `${md}:${ml}`, label: `${md === 'shorter' ? 'Shorter' : 'Clearer'} · ${ml[0].toUpperCase()}${ml.slice(1)}` })))
+async function setOptPrefs($: Engine, mode: string, model: string) {
+  if (['clearer', 'shorter'].includes(mode)) await setOptPref($, 'mode', mode)
+  if (MODELS.includes(model)) await setOptPref($, 'model', model)
+}
 /** A model or mode picked on the bar: used at once, and handed to Tokkie so its Settings match. */
 async function setOptPref($: Engine, key: 'model' | 'mode', value: string) {
   await update($, opt, (o) => ({ ...o, [key]: value, error: undefined }))
@@ -233,8 +238,6 @@ const ICON_PATHS: Record<string, string> = {
   alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2h0"/>',
 }
 const GLYPH: Record<string, string> = { usage: '◔', pace: '↯', status: '✓', tokens: '▮', lastPrompt: '$', context: '≡', cache: '◷', agents: '⚙', alert: '!' }
-// The pet in the bar: a small square, about the height of the bar's text.
-const AVATAR_H = 14
 const k = (key: string) => (ICON_PATHS[key] ? key : 'status')
 
 const icon = (k: string, color: string) =>
@@ -288,8 +291,8 @@ export const register: Register = on => {
     const optButton = b.optimizer && Button ? (
       <Box key="optbox" flexDirection="row" columnGap={1} alignItems="center">
         <Button key="opt" label={label} onPress={() => { if (!o.busy) void optimizeDraft($, model, mode) }} />
-        {Select ? <Select key="optmode" options={[{ value: 'clearer', label: '✨ Clearer' }, { value: 'shorter', label: '✂ Shorter' }]} value={mode} onSelect={(v: string) => { void setOptPref($, 'mode', v) }} /> : null}
-        {Select ? <Select key="optmodel" options={[{ value: 'haiku', label: 'Haiku' }, { value: 'sonnet', label: 'Sonnet' }, { value: 'opus', label: 'Opus' }]} value={model} onSelect={(v: string) => { void setOptPref($, 'model', v) }} /> : null}
+        {/* one compact picker for style × model ("Clearer · Haiku"), so the bar stays one row */}
+        {Select ? <Select key="optcfg" options={OPT_CHOICES} value={`${mode}:${model}`} onSelect={(v: string) => { const [md, ml] = v.split(':'); void setOptPrefs($, md, ml) }} /> : null}
       </Box>
     ) : null
     const undoButton = o.original && Button ? <Button key="undo" label="Undo" onPress={() => { void undoOptimize($) }} /> : null
@@ -311,14 +314,16 @@ export const register: Register = on => {
       const HL = '#8080802e'
       return (
         <Box flexDirection="column" overflow="hidden">
+          {/* Explanations and results go ABOVE the row: the bar sits on the prompt box, so a line added below
+              pushes the row up under the cursor, which flips the hover on and off (the "double vision"). */}
+          {b.items.map((it, i) => (
+            <Box key={`t${i}`} display="none" hover={{ scope: `tokkie-${i}`, display: 'flex' }}>
+              <Text dimColor wrap="wrap"><Text bold>{it.label}</Text>{it.tip ? ` — ${it.tip}` : ''}</Text>
+            </Box>
+          ))}
           {b.alert ? <Text color={TONE.bad} wrap="truncate">⚠ {b.alert}</Text> : null}
-          {/* wraps onto more rows when the window is narrow, so nothing is cut off */}
+          {optLine}
           <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={1} rowGap={0}>
-            {b.avatar && b.showItems ? (
-              <Box key="tk" paddingX={1} hover={{ scope: 'tokkie-about', backgroundColor: HL }}>
-                <Svg source={b.avatar} alt="Tokkie" width={AVATAR_H} height={AVATAR_H} />
-              </Box>
-            ) : null}
             {optButton}
             {b.items.map((it, i) => {
               const color = it.tone ? TONE[it.tone] : undefined
@@ -330,15 +335,6 @@ export const register: Register = on => {
               )
             })}
           </Box>
-          {optLine}
-          <Box key="tip-about" display="none" hover={{ scope: 'tokkie-about', display: 'flex' }}>
-            <Text dimColor wrap="truncate">Tokkie — your usage pet. Hover an item to see what it means.</Text>
-          </Box>
-          {b.items.map((it, i) => (
-            <Box key={`t${i}`} display="none" hover={{ scope: `tokkie-${i}`, display: 'flex' }}>
-              <Text dimColor wrap="truncate"><Text bold>{it.label}</Text>{it.tip ? ` — ${it.tip}` : ''}</Text>
-            </Box>
-          ))}
         </Box>
       )
     }

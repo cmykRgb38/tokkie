@@ -368,3 +368,16 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .until { color: var(--ink-3); font-weight: 400; font-variant-numeric: tabular-nums; }
 .btn.icon-only { width: 32px; padding: 0; }
 .empty .kbd, p .kbd, li .kbd { padding: 2px 6px; font-size: 12px; vertical-align: 1px; }
+
+/* Guided tour: a card pinned above the tab bar, pointing at the highlighted tab */
+.tour { position: absolute; left: 10px; right: 10px; bottom: 62px; z-index: 6; display: grid; gap: 6px; padding: 12px 14px; border-radius: var(--r-md);
+  background: var(--bg); border: 1px solid var(--accent); box-shadow: var(--shadow); animation: fade .2s var(--ease-out); }
+.tour strong { font-size: 15px; font-weight: 650; }
+.tour p { font-size: 13px; line-height: 1.45; color: var(--ink-2); text-wrap: pretty; }
+.tour-nav { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.tour-nav .btn.quiet { margin-right: auto; padding-left: 0; }
+.tour-dots { display: flex; gap: 4px; margin-right: 6px; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
+.tour-dots i.on { background: var(--accent); }
+.tabs button.tour-hl { color: var(--ink); background: var(--accent-soft); }
+.meter .foot .btn.quiet { padding-left: 0; height: 24px; }

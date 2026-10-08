@@ -93,7 +93,7 @@ export function usageView(root, api) {
   let lastIds = '';
   return {
     update(S) {
-      welcome.hidden = !!S.settings.onboarded;
+      welcome.hidden = true;                 // the guided tour replaces this card
       const now = S.now, list = [];
       const meters = Array.isArray(S.meters) ? S.meters : [];
       for (const m of meters) {

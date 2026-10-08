@@ -124,7 +124,7 @@ test('✨ Optimize on the bar rewrites the typed prompt in place, and Undo puts 
   }
 })
 
-test('the bar’s model and Clearer/Shorter pickers take effect at once and tell Tokkie', async ($, on) => {
+test('the bar’s style × model picker takes effect at once and tell Tokkie', async ($, on) => {
   const clock = mock.clock(on, { now: 1_900_000_000_000 })
   const files = fakeHost(on, { cost: 1, limits: [] })
   const H = '/private/tmp/tokkie-bridge-test/.tokkie'
@@ -137,8 +137,7 @@ test('the bar’s model and Clearer/Shorter pickers take effect at once and tell
   await $.session.start({ source: 'startup', cwd: '/work' } as never)
   await clock.advance(10)
   const ui = await $.ui.mount({ plugin: 'tokkie-bridge', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
-  await (ui as any).select({ key: 'optmodel', value: 'opus' })
-  await (ui as any).select({ key: 'optmode', value: 'shorter' })
+  await (ui as any).select({ key: 'optcfg', value: 'shorter:opus' })
   expect(JSON.parse(files[`${H}/prefs.json`]).optimizerModel).toBe('opus')
   expect(JSON.parse(files[`${H}/prefs.json`]).optimizerMode).toBe('shorter')
   await ui.press({ key: 'opt' } as never)

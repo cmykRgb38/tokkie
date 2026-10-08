@@ -12,6 +12,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
   win.webContents.on('console-message', (_e, level, msg) => { if (level >= 3) errors.push(msg); });
   win.webContents.on('render-process-gone', () => errors.push('render process gone'));
 
+  const rclick = (sel) => js(`document.querySelector('${sel}').dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2}))`);
   const click = (sel) => js(`(()=>{const s=document.querySelector('${sel}');const r=s.getBoundingClientRect();const o={bubbles:true,pointerId:1,button:0,clientX:r.left+r.width/2,clientY:r.top+r.height/2,screenX:100,screenY:100};s.dispatchEvent(new PointerEvent('pointerdown',o));s.dispatchEvent(new PointerEvent('pointerup',o));})()`);
   const state = () => js(`({mode:document.getElementById('app').dataset.mode, cls:document.getElementById('app').className, panelHidden:document.getElementById('panel').hidden, pill:document.getElementById('pills').textContent, tab:[...document.querySelectorAll('.tabs button')].find(b=>b.getAttribute('aria-selected')==='true').dataset.tab, visibleViews:[...document.querySelectorAll('.view')].filter(v=>!v.hidden).map(v=>v.id)})`);
 
@@ -57,8 +58,10 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       ok('window starts visible', win.isVisible());
       const p0 = petPos(), b0 = win.getBounds();
 
-      await click('#stage'); await wait(700); st = await state();
-      ok('click pet → panel opens below (pet in upper half)', st.mode === 'expanded' && st.cls === 'below' && !st.panelHidden);
+      await click('#stage'); await wait(500); st = await state();
+      ok('left-click plays with the pet and keeps the panel closed', st.mode === 'collapsed');
+      await rclick('#stage'); await wait(700); st = await state();
+      ok('right-click pet → panel opens below (pet in upper half)', st.mode === 'expanded' && st.cls === 'below' && !st.panelHidden);
       ok('pet does not jump when panel opens', near(petPos(), p0), JSON.stringify([p0, petPos()]));
       const b1 = win.getBounds(); ok('window grew to fit panel', b1.height > b0.height + 300 && b1.y >= wa.y && b1.y + b1.height <= wa.y + wa.height);
 
@@ -97,7 +100,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
 
       // bottom edge → panel opens above
       win.setPosition(wa.x + Math.round(wa.width / 2), wa.y + wa.height - win.getBounds().height - 10); await wait(300);
-      const pb = petPos(); await click('#stage'); await wait(700); st = await state();
+      const pb = petPos(); await rclick('#stage'); await wait(700); st = await state();
       ok('pet near bottom → panel opens above', st.cls === 'above' && st.mode === 'expanded', st.cls);
       ok('pet does not jump (above)', near(petPos(), pb), JSON.stringify([pb, petPos()]));
       const bb = win.getBounds(); ok('window stays inside the work area', bb.y >= wa.y && bb.y + bb.height <= wa.y + wa.height && bb.x >= wa.x && bb.x + bb.width <= wa.x + wa.width);
@@ -268,6 +271,14 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       ok('dragging the panel corner resizes it, keeps the pet in place and remembers the size', wb1.width >= wb0.width + 100 && pw.panelW >= 450 && pw.panelH >= 600 && near(petPos(), pr0, 2), JSON.stringify([wb0.width, wb1.width, pw.panelW, pw.panelH, pr0, petPos()]));
       await js(`document.getElementById('grip').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`); await wait(700);
       ok('double-clicking the corner resets the size', settings.get('window').panelW === 336 && settings.get('window').panelH === 504);
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(400);
+      // the guided tour: walks the tabs, can go back, and marks you onboarded at the end
+      await js(`window.__tokkie.startTour()`); await wait(900);
+      const t1 = await js(`({shown:!document.getElementById('tour').hidden, title:document.querySelector('#tour strong').textContent, tab:document.querySelector('.tabs button[aria-selected="true"]').dataset.tab})`);
+      for (let i = 0; i < 2; i++) { await js(`document.querySelector('#tour .btn.primary').click()`); await wait(250); }
+      const t3 = await js(`({title:document.querySelector('#tour strong').textContent, tab:document.querySelector('.tabs button[aria-selected="true"]').dataset.tab, hl:document.querySelector('.tabs button.tour-hl')?.dataset.tab})`);
+      for (let i = 0; i < 4; i++) { await js(`document.querySelector('#tour .btn.primary').click()`); await wait(250); }
+      ok('the tour walks through the tabs and ends', t1.shown && /^Hi, I’m/.test(t1.title) && t3.title === 'Estimate' && t3.tab === 'plan' && t3.hl === 'plan' && (await js(`document.getElementById('tour').hidden`)) && settings.get('onboarded') === true, JSON.stringify([t1, t3]));
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(400);
       ok('no renderer console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
     } catch (e) { ok('e2e harness threw', false, e.stack); }

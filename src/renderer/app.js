@@ -37,6 +37,7 @@ const api = {
   setReading: (id, pct) => bridge.setReading(id, pct),
   emote: (m) => pet.emote(m, m === 'sleep' ? 5000 : 3500),
   dismissWelcome: () => bridge.setSettings({ onboarded: true }),
+  startTour: () => startTour(),
   openTab: (t) => setMode('expanded', t),
   openSession: (id) => bridge.ui.openSession(id),
   copyText: (t) => bridge.ui.copyText(t),
@@ -284,28 +285,12 @@ function barTip(l) {
 function barText(l) {
   const v = String(l.value);
   if (l.k === 'usage') return v.replace(/\/\d+( · |$)/, '$1');                       // ≈58% · $115/200 → ≈58% · $115
-  if (l.k === 'pace') return v;
+  if (l.k === 'pace') return v.replace('out today ', 'out ').replace('out tomorrow ', 'out tmrw ');   // the bar is one tight row
   if (l.k === 'status') return v.replace(/ · (\d+\w*)( \d+s)? ago$/, ' $1');   // Done · 1m 19s ago → Done 1m
   if (l.k === 'context') return v.replace(/ · \d+%$/, '');
   if (l.k === 'cache') return v.replace(' left', '');
   if (l.k === 'agents') return v.replace(' running', '');
   return v;
-}
-
-/** Your pet as a tiny crisp SVG, for the Claude bar (cropped to the sprite; redrawn only when the pet or its form changes). */
-let avatarKey = '', avatarSvg = '';
-function petAvatar() {
-  const key = `${seedShown}:${pet.form.stage}:${pet.form.fat}`;
-  if (key === avatarKey || !pet.spec) return avatarSvg;
-  const f = M.compose(pet.spec, { frame: 0, bob: 0, eye: 'open', mouth: 'smile', look: { x: 0, y: 0 } });
-  const px = [...f.outline, ...f.cells];
-  if (!px.length) return avatarSvg;
-  const xs = px.map((c) => c.x), ys = px.map((c) => c.y);
-  const x0 = Math.min(...xs), y0 = Math.min(...ys), w = Math.max(...xs) - x0 + 1, h = Math.max(...ys) - y0 + 1, side = Math.max(w, h);
-  const ox = x0 - (side - w) / 2, oy = y0 - (side - h);           // square, feet on the bottom edge (renders reliably in the bar)
-  avatarSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${ox} ${oy} ${side} ${side}" shape-rendering="crispEdges">` + px.map((c) => `<rect x="${c.x}" y="${c.y}" width="1" height="1" fill="${c.c}"/>`).join('') + '</svg>';
-  avatarKey = key;
-  return avatarSvg;
 }
 
 function bandAlert(S) {
@@ -388,7 +373,7 @@ function render() {
   if (lines) renderDock(lines);
   applyLayout();
   const inClaude = !!lines && place === 'claude';
-  bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S), avatar: inClaude ? petAvatar() : '' });
+  bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S) });
   chip.textContent = d.chipText; chip.dataset.k = d.chipK;
   $('#petTraits').textContent = ev.eaten < 1000 ? `${ev.name} · just hatched` : `${ev.name} · ${fmtTokens(ev.eaten)} eaten`;
 
@@ -484,7 +469,10 @@ const endResize = () => {
 grip.addEventListener('pointerup', endResize); grip.addEventListener('pointercancel', endResize);
 grip.addEventListener('dblclick', () => { applyPanelSize(336, 504); sendLayout(); bridge.setSettings({ window: { panelW: 336, panelH: 504 } }); });
 
-addEventListener('keydown', (e) => { if (e.key === 'Escape' && mode === 'expanded' && !e.defaultPrevented) setMode('collapsed'); });
+addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && tourStep >= 0) { endTour(); return; }
+  if (e.key === 'Escape' && mode === 'expanded' && !e.defaultPrevented) setMode('collapsed');
+});
 
 // drag the pet anywhere; a click (no movement) toggles the panel
 let drag = null;
@@ -494,7 +482,9 @@ stage.addEventListener('pointermove', (e) => {
   if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;
   if (drag.moved) bridge.ui.dragMove({ dx, dy });
 });
-stage.addEventListener('pointerup', () => { if (!drag) return; if (drag.moved) bridge.ui.dragEnd(); else { ackNow(); pet.poke(); setMode(mode === 'expanded' ? 'collapsed' : 'expanded'); } drag = null; });
+// Left-click plays with the pet; right-click opens/closes the panel; left-drag moves it.
+stage.addEventListener('pointerup', () => { if (!drag) return; if (drag.moved) bridge.ui.dragEnd(); else { ackNow(); pet.poke(); } drag = null; });
+stage.addEventListener('contextmenu', (e) => { e.preventDefault(); if (drag) { drag = null; } ackNow(); setMode(mode === 'expanded' ? 'collapsed' : 'expanded'); });
 stage.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pet.poke(); setMode(mode === 'expanded' ? 'collapsed' : 'expanded'); } });
 // Petting: hover for a couple of seconds and it falls in love.
 let petTimer = null;
@@ -529,7 +519,50 @@ bridge.onState((s) => { S = withEta(s); render(); firstRun(); });
 function withEta(s) { return s; }
 function firstRun() {
   if (welcomed || !S || S.settings.onboarded) return; welcomed = true;
-  setTimeout(() => setMode('expanded', 'usage'), 700);
+  setTimeout(() => startTour(), 700);
+}
+
+// ------------------------------------------------------------------------------------- the tour
+// Six short steps over the real panel: each one opens its tab and points at it. Replay from Settings.
+const tourEl = $('#tour');
+let tourStep = -1;
+function tourSteps() {
+  const mac = S && S.platform === 'darwin', key = S ? prettyHotkey(S.settings.hotkey, mac) : '';
+  const name = pet.spec ? pet.spec.name : 'Tokkie';
+  return [
+    { tab: 'usage', title: `Hi, I’m ${name}!`, body: 'I sit on your desktop and keep an eye on your Claude usage. Click me to play, right-click me to open or close this panel, and drag me anywhere.' },
+    { tab: 'usage', title: 'Usage', body: 'How much of your plan you’ve used, live, and when you’d run out at this pace. I’ll warn you at 75% and 90%.' },
+    { tab: 'plan', title: 'Estimate', body: `Copy a prompt and press ${key} from anywhere: I’ll guess how long it runs and whether it fits before your “Done by” time. Optimize rewrites it more clearly.` },
+    { tab: 'history', title: 'History', body: 'Every prompt for 90 days, by day. Click one to read it in full, copy it, or reopen that chat in Claude.' },
+    { tab: 'pets', title: 'Pets', body: 'I eat tokens and evolve. Collect pets, pick my personality, and hunt for the 6 secret ones.' },
+    { tab: 'settings', title: 'Settings', body: 'Connect the Claude Code bridge for exact dollars, a bar above Claude’s prompt box, and one-click Optimize. You can replay this tour here any time.' },
+  ];
+}
+function prettyHotkey(acc, mac) { return acc.split('+').map((k) => ({ CommandOrControl: mac ? '⌘' : 'Ctrl', Command: '⌘', Control: mac ? '⌃' : 'Ctrl', Alt: mac ? '⌥' : 'Alt', Shift: mac ? '⇧' : 'Shift' }[k] || k)).join(mac ? ' ' : ' + '); }
+function startTour() { tourStep = 0; setMode('expanded', 'usage').then(drawTour); }
+function endTour() {
+  tourStep = -1; tourEl.hidden = true;
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.remove('tour-hl'));
+  bridge.setSettings({ onboarded: true });
+}
+function drawTour() {
+  const steps = tourSteps(), st = steps[tourStep];
+  if (!st) { endTour(); return; }
+  if (tab !== st.tab) selectTab(st.tab);
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('tour-hl', b.dataset.tab === st.tab && tourStep > 0));
+  const last = tourStep === steps.length - 1;
+  const btn = (text, cls, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = cls; b.textContent = text; b.addEventListener('click', fn); return b; };
+  const dots = document.createElement('div'); dots.className = 'tour-dots';
+  steps.forEach((_, i) => { const d = document.createElement('i'); if (i === tourStep) d.className = 'on'; dots.append(d); });
+  const h = document.createElement('strong'); h.textContent = st.title;
+  const p = document.createElement('p'); p.textContent = st.body;
+  const nav = document.createElement('div'); nav.className = 'tour-nav';
+  nav.append(btn('Skip', 'btn sm quiet', endTour), dots,
+    ...(tourStep > 0 ? [btn('Back', 'btn sm', () => { tourStep--; drawTour(); })] : []),
+    btn(last ? 'Done' : 'Next', 'btn sm primary', () => { tourStep++; drawTour(); }));
+  tourEl.replaceChildren(h, p, nav);
+  tourEl.hidden = false;
+  tourEl.querySelector('.btn.primary').focus({ preventScroll: true });
 }
 
 // ------------------------------------------------------------------------------------- boot
@@ -544,4 +577,4 @@ bridge.ui.ready();   // always reveal the window, even if something above failed
 firstRun();
 setInterval(() => { if (S) { try { S.now = Date.now(); render(); } catch (e) { console.error('render failed', e); } } }, 1000);
 
-window.__tokkie = { pet, emotes: EMOTES, previewForm: (stage, fat = 0) => celebrateEvolution({ stage, fat, eaten: 0 }, pet.form.stage), forceAlert: (kind) => { forced = { kind, until: Date.now() + 8000 }; render(); } }; // handy for QA and the dev console
+window.__tokkie = { pet, emotes: EMOTES, previewForm: (stage, fat = 0) => celebrateEvolution({ stage, fat, eaten: 0 }, pet.form.stage), forceAlert: (kind) => { forced = { kind, until: Date.now() + 8000 }; render(); }, startTour }; // handy for QA and the dev console

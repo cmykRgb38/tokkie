@@ -144,6 +144,7 @@ function maybeScreenshot() {
   if (!out) return;
   const tab = process.env.TOKKIE_TAB;
   setTimeout(() => { if (tab) send('command', { type: 'open', tab }); }, 1500);
+  if (process.env.TOKKIE_TOUR_NEXT) setTimeout(() => win.webContents.executeJavaScript(`for (let i = 0; i < ${Number(process.env.TOKKIE_TOUR_NEXT)}; i++) document.querySelector('#tour .btn.primary')?.click()`), 2600);
   if (process.env.TOKKIE_ALERT) setTimeout(() => win.webContents.executeJavaScript(`window.__tokkie.forceAlert(${JSON.stringify(process.env.TOKKIE_ALERT)})`), 1800);
   if (process.env.TOKKIE_SCROLL) setTimeout(() => win.webContents.executeJavaScript(`document.querySelectorAll('.view').forEach((v) => { v.scrollTop = ${Number(process.env.TOKKIE_SCROLL) || 0}; })`), Number(process.env.TOKKIE_SHOT_DELAY || 2200) - 400);
   if (process.env.TOKKIE_EST) setTimeout(() => { const t = process.env.TOKKIE_EST; send('estimate', { source: 'hotkey', text: t, result: engine.estimate(t) }); }, 2000);

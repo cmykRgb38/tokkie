@@ -117,7 +117,9 @@ export function settingsView(root, api) {
     group('Appearance', field('Theme', null, theme.node), field('Pet size', null, size.node)),
     group('Estimate', hotRow, clip.row),
     group('Alerts', alertT.row, bubbleT.row, notify.row),
-    group('System', login.row, top.row, budgetRow),
+    group('System', login.row, top.row, budgetRow,
+      el('div', { class: 'field inline' }, el('div', { class: 'ftext' }, el('div', { class: 't', text: 'Tour' }), el('div', { class: 'd', text: 'A one-minute walk through what Tokkie can do.' })),
+        el('button', { class: 'btn sm', type: 'button', text: 'Take the tour', onclick: () => api.startTour() }))),
     details,
     el('div', { class: 'sfoot' }, ver, el('div', { class: 'sfoot-actions' }, el('button', { class: 'btn sm quiet', type: 'button', text: 'Hide', onclick: () => api.hide() }), el('button', { class: 'btn sm quiet danger', type: 'button', text: 'Quit Tokkie', onclick: () => api.quit() })))));
 
