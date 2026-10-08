@@ -74,6 +74,10 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
       const shiv = await js(`(()=>{const P=window.__tokkie.pet, b=P.base, t0=P.tick; P.override=null; P.base='hungry'; let n=0; for(let i=0;i<100;i++){P.tick=t0+i; if(P.pose().shiver) n++;} P.base=b; P.tick=t0; return n;})()`);
       ok('a hungry pet (limit nearly used up) only shivers now and then, not non-stop', shiv > 0 && shiv <= 8, String(shiv));
       const guide = await js(`(()=>{const rows=[...document.querySelectorAll('#view-pets .bh-row')].length, tries=[...document.querySelectorAll('#view-pets .bh-try')]; const P=window.__tokkie.pet, b=P.base; P.base='work'; tries[2].click(); P.stepPlay(performance.now(), 1); const k=P.act&&P.act.k; P.endAct(); P.base=b; return {rows, tries:tries.length, k, temper:document.querySelector('#view-pets .bh-temper').textContent};})()`);
+      const box = await js(`(()=>{const P=window.__tokkie.pet, b=P.base, out={}; for (const m of ['hungry','work']) { P.base=m; P.hide=null; P.clicks=[]; P.angryAt=performance.now(); P.override=null; for(let i=0;i<P.P.pokes;i++) P.poke(1); for(let i=0;i<5;i++) P.stepPlay(performance.now(), i); out[m]=!!P.hide; }
+        P.hide=null; P.base='hungry'; [...document.querySelectorAll('#view-pets .bh-try')].pop().click(); for(let i=0;i<5;i++) P.stepPlay(performance.now(), i); out.showMe=!!P.hide;
+        P.base='done'; P.stepPlay(performance.now(), 1); out.outWhenDone=!P.hide; P.hide=null; P.base=b; return out;})()`);
+      ok('the box works in any mood (hungry, busy), from poking and from Show me, and it pops out when Claude finishes', box.hungry && box.work && box.showMe && box.outWhenDone, JSON.stringify(box));
       ok('Pets lists everything the pet does and why, and “Show me” plays an activity even while Claude is busy', guide.rows >= 18 && guide.tries === 6 && guide.k === 'butterfly' && /asleep after \d+ min/.test(guide.temper), JSON.stringify(guide));
       await rclick('#stage'); await wait(700); st = await state();
       ok('right-click pet → panel opens below (pet in upper half)', st.mode === 'expanded' && st.cls === 'below' && !st.panelHidden);

@@ -140,7 +140,7 @@ export class Pet {
     if (!prev || reduce.matches || this.sprite || this.hide || this.bite) return;
     const closing = prev.dist - dist > 20;
     if (!(dist < 120 && closing && speed > 900 && now - this.dodgeAt > 3000)) return;
-    if (!['idle', 'bored'].includes(this.base) || (this.override && this.override.mood !== 'playful')) return;
+    if (!['idle', 'bored', 'hungry'].includes(this.base) || (this.override && this.override.mood !== 'playful')) return;
     const T = TEMPER[this.persona] || TEMPER.cheerful;
     if (this.persona === 'grumpy') { this.dodgeAt = now; this.override = { mood: 'angry', until: now + 1200 }; return; }
     if (Math.random() < T.dodge) { this.dodge(dx > 0 ? -1 : 1); this.emote(this.persona === 'playful' ? 'playful' : 'surprised', 1200); }
@@ -184,7 +184,7 @@ export class Pet {
 
   // ---- particles ---------------------------------------------------------------------------
   crumb() {
-    if (!this.anch) return;
+    if (!this.anch || this.hide) return;          // no snacking while hiding in the box
     const side = Math.random() < 0.5 ? -1 : 1;
     const mx = this.anch.mouth.x + this.bx, my = this.anch.mouth.y + OY;
     this.particles.push({ k: 'crumb', x: mx + side * (6 + Math.floor(Math.random() * 3)), y: my - 3 - Math.floor(Math.random() * 3), tx: mx, ty: my, life: 14,
@@ -270,7 +270,9 @@ export class Pet {
   stepPlay(now, t) {
     const idleish = ['idle', 'bored'].includes(this.base);
     // Claude finished / needs you / is working: drop everything and pay attention
-    if (!idleish) { if (this.act && !this.act.forced) this.endAct(); if (this.hide) this.hide = null; }
+    if (!idleish && this.act && !this.act.forced) this.endAct();
+    // the box: it stays hidden whatever the mood (busy, hungry…), and only pops out early when Claude finishes or needs you
+    if (this.hide && ['done', 'alert', 'ask'].includes(this.base)) this.hide = null;
     if (this.act && ((this.override && !this.act.forced) || this.hovered || now > this.act.until)) this.endAct();
     if (!this.act && !this.hide && idleish && !this.override && !this.hovered && now > this.nextAct && !reduce.matches) this.play();
     if (this.hide) { if (this.hide.shake > 0) this.hide.shake--; if (now > this.hide.until) { this.hide = null; this.emote('surprised', 900); } }
