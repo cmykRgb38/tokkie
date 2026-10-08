@@ -55,11 +55,12 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
       if (o.busy) { optOut.replaceChildren(el('p', { class: 'muted', text: 'Asking Claude for a better version…' })); return; }
       if (!o.ok) { optOut.replaceChildren(el('p', { class: 'muted', style: 'color:var(--bad)', text: o.error })); return; }
       optOut.replaceChildren(...[
-        el('div', { class: 'label with-ic' }, icon('sparkle'), `Better next time · ${o.before} → ${o.after} tokens`),
+        el('div', { class: 'label with-ic' }, icon('sparkle'), `Better next time · prompt text ${o.before} → ${o.after} tokens`),
         el('div', { class: 'rfull', text: o.optimized }),
         o.changes.length ? el('ul', { class: 'optlist' }, o.changes.map((c) => el('li', { text: c }))) : null,
         o.questions.length ? el('div', { class: 'optq' }, el('b', { text: 'Fill in before sending: ' }), o.questions.join(' · ')) : null,
         el('button', { class: 'btn sm primary', type: 'button', text: 'Copy optimized', onclick: stop(async () => { await api.copyText(o.optimized); note('Optimized prompt copied.'); }) }),
+        el('p', { class: 'muted', text: `That counts only the words you type. ${r.headline ? `The run itself used ≈ ${fmtTokens(r.headline)}: ` : 'A run uses far more: '}mostly Claude reading files, thinking and writing. A clearer prompt saves there, by cutting wrong turns, not by being shorter.` }),
       ].filter(Boolean));
     };
     drawOpt();

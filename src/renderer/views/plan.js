@@ -35,7 +35,7 @@ export function planView(root, api) {
     try { r = await api.optimize(text); } catch { r = { ok: false, error: 'Something went wrong.' }; } finally { optBtn.disabled = !ta.value.trim(); optLabel.textContent = 'Optimize'; }
     if (!r || !r.ok) { optBox.replaceChildren(el('p', { class: 'muted', style: 'color:var(--bad)', text: (r && r.error) || 'Couldn’t optimize.' })); return; }
     optBox.replaceChildren(...[
-      el('div', { class: 'row' }, el('span', { class: 'label with-ic' }, icon('sparkle'), `${r.before.promptTokens} → ${r.after.promptTokens} tokens · ${r.model[0].toUpperCase() + r.model.slice(1)}`),
+      el('div', { class: 'row' }, el('span', { class: 'label with-ic' }, icon('sparkle'), `Prompt text ${r.before.promptTokens} → ${r.after.promptTokens} tokens · ${r.model[0].toUpperCase() + r.model.slice(1)}`),
         el('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', title: 'Close', onclick: () => { optBox.hidden = true; } }, icon('x'))),
       el('div', { class: 'rfull', text: r.optimized }),
       r.changes.length ? el('ul', { class: 'optlist' }, r.changes.map((c) => el('li', { text: c }))) : null,
@@ -43,7 +43,7 @@ export function planView(root, api) {
       el('div', { class: 'row', style: 'gap:6px;justify-content:flex-start' },
         el('button', { class: 'btn sm primary', type: 'button', text: 'Copy optimized', onclick: async () => { await api.copyText(r.optimized); flash('Optimized prompt copied — paste it into Claude.'); } }),
         el('button', { class: 'btn sm', type: 'button', text: 'Use it here', title: 'Put it in the box above and estimate it', onclick: () => { ta.value = r.optimized; ta.dispatchEvent(new Event('input', { bubbles: true })); optBox.hidden = true; } })),
-      el('p', { class: 'muted', text: 'A clearer prompt saves by avoiding wasted steps, not by being shorter — so it may be a little longer. Send it, then compare in Recent runs.' }),
+      el('p', { class: 'muted', text: 'That counts only the words you type. The run itself uses far more (Claude reading files, thinking, writing), and a clearer prompt saves there by cutting wrong turns, so it may be a little longer. Send it, then compare in History.' }),
     ].filter(Boolean));
   });
 

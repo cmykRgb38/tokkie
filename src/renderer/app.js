@@ -523,7 +523,7 @@ function firstRun() {
 }
 
 // ------------------------------------------------------------------------------------- the tour
-// Six short steps over the real panel: each one opens its tab and points at it. Replay from Settings.
+// Seven short steps over the real panel: each one opens its tab and points at it. Replay from Settings.
 const tourEl = $('#tour');
 let tourStep = -1;
 function tourSteps() {
@@ -532,7 +532,8 @@ function tourSteps() {
   return [
     { tab: 'usage', title: `Hi, I’m ${name}!`, body: 'I sit on your desktop and keep an eye on your Claude usage. Click me to play, right-click me to open or close this panel, and drag me anywhere.' },
     { tab: 'usage', title: 'Usage', body: 'How much of your plan you’ve used, live, and when you’d run out at this pace. I’ll warn you at 75% and 90%.' },
-    { tab: 'plan', title: 'Estimate', body: `Copy a prompt and press ${key} from anywhere: I’ll guess how long it runs and whether it fits before your “Done by” time. Optimize rewrites it more clearly.` },
+    { tab: 'plan', title: 'Estimate', body: `Copy a prompt and press ${key} from anywhere: I’ll guess how long it runs and whether it fits before your “Done by” time.` },
+    { tab: 'plan', title: 'Optimize', body: 'Optimize asks Claude to rewrite a prompt so the run wastes fewer steps. Clearer makes it precise (it may get a bit longer); Shorter trims words. Pick Haiku, Sonnet or Opus to do the rewrite. It’s here, on every prompt in History, and on the Claude bar.' },
     { tab: 'history', title: 'History', body: 'Every prompt for 90 days, by day. Click one to read it in full, copy it, or reopen that chat in Claude.' },
     { tab: 'pets', title: 'Pets', body: 'I eat tokens and evolve. Collect pets, pick my personality, and hunt for the 6 secret ones.' },
     { tab: 'settings', title: 'Settings', body: 'Connect the Claude Code bridge for exact dollars, a bar above Claude’s prompt box, and one-click Optimize. You can replay this tour here any time.' },

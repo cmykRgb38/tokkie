@@ -277,7 +277,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       const t1 = await js(`({shown:!document.getElementById('tour').hidden, title:document.querySelector('#tour strong').textContent, tab:document.querySelector('.tabs button[aria-selected="true"]').dataset.tab})`);
       for (let i = 0; i < 2; i++) { await js(`document.querySelector('#tour .btn.primary').click()`); await wait(250); }
       const t3 = await js(`({title:document.querySelector('#tour strong').textContent, tab:document.querySelector('.tabs button[aria-selected="true"]').dataset.tab, hl:document.querySelector('.tabs button.tour-hl')?.dataset.tab})`);
-      for (let i = 0; i < 4; i++) { await js(`document.querySelector('#tour .btn.primary').click()`); await wait(250); }
+      for (let i = 0; i < 5; i++) { await js(`document.querySelector('#tour .btn.primary').click()`); await wait(250); }
       ok('the tour walks through the tabs and ends', t1.shown && /^Hi, I’m/.test(t1.title) && t3.title === 'Estimate' && t3.tab === 'plan' && t3.hl === 'plan' && (await js(`document.getElementById('tour').hidden`)) && settings.get('onboarded') === true, JSON.stringify([t1, t3]));
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(400);
       ok('no renderer console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
