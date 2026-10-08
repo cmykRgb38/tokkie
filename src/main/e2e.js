@@ -60,6 +60,17 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
 
       await click('#stage'); await wait(500); st = await state();
       ok('left-click plays with the pet and keeps the panel closed', st.mode === 'collapsed');
+      // play: idle activities, poking escalates (angry + snap → hides in its box), busy Claude ends the play
+      const play = await js(`(()=>{const P=window.__tokkie.pet, out={}; P.setPersonality('cheerful'); P.base='idle'; P.override=null; P.hide=null; P.clicks=[]; P.angryAt=0;
+        for (const k of ['console','ball','butterfly','paint','read']) { P.play(k); out[k]=P.act&&P.act.k; } P.endAct();
+        for (let i=0;i<P.P.pokes;i++) P.poke(1); out.angry = P.override && P.override.mood; out.snap = !!P.bite;
+        for (let i=0;i<P.P.pokes;i++) P.poke(1); out.hid = !!P.hide;
+        P.hide=null; P.play('ball'); P.base='work'; P.stepPlay(performance.now(), 1); out.stopped = !P.act; P.base='idle';
+        out.hitEmpty = P.hitTest(2, 2); const r=document.getElementById('pet').getBoundingClientRect(); out.hitBody = P.hitTest(r.width/2, r.height*0.75);
+        return out;})()`);
+      ok('the pet plays (console, ball, butterfly, painting, book), snaps then hides when poked too much, stops when Claude gets busy, and only its own pixels take clicks',
+        ['console', 'ball', 'butterfly', 'paint', 'read'].every((k) => play[k] === k) && play.angry === 'angry' && play.snap && play.hid && play.stopped && !play.hitEmpty && play.hitBody, JSON.stringify(play));
+      await js(`window.__tokkie.pet.hide=null; window.__tokkie.pet.bite=null; window.__tokkie.pet.dx=0; window.__tokkie.pet.tx=0`);
       await rclick('#stage'); await wait(700); st = await state();
       ok('right-click pet → panel opens below (pet in upper half)', st.mode === 'expanded' && st.cls === 'below' && !st.panelHidden);
       ok('pet does not jump when panel opens', near(petPos(), p0), JSON.stringify([p0, petPos()]));

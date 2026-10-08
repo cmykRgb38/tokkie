@@ -1,5 +1,6 @@
 import { $, clamp, fmtDur, fmtClockDur, fmtTokens, fmtRange, fmtRunOut, fmtRunOutShort, chatAdvice } from './util.js';
-import { Pet, EMOTES, PERSONALITY } from './pet.js';
+import { Pet, EMOTES, PERSONALITY, SCENE_W } from './pet.js';
+const M_CX = window.TokkieMonster.CX;
 import { usageView, kindUsed } from './views/usage.js';
 import { alertState, acknowledge } from './alerts.js';
 import { planView } from './views/plan.js';
@@ -540,27 +541,44 @@ stage.addEventListener('pointermove', (e) => {
   if (drag.moved) bridge.ui.dragMove({ dx, dy });
 });
 // Left-click plays with the pet; right-click opens/closes the panel; left-drag moves it.
-stage.addEventListener('pointerup', () => { if (!drag) return; if (drag.moved) bridge.ui.dragEnd(); else { ackNow(); pet.poke(); } drag = null; });
+stage.addEventListener('pointerup', (e) => { if (!drag) return; if (drag.moved) bridge.ui.dragEnd(); else { ackNow(); pet.poke(pokeSide(e)); } drag = null; });
+// which side of the pet's body the pointer is on, so a snap goes the right way
+function pokeSide(e) { const r = canvas.getBoundingClientRect(), k = r.width / SCENE_W, mid = r.left + (pet.bx + M_CX) * k; return e.clientX < mid ? -1 : 1; }
 stage.addEventListener('contextmenu', (e) => { e.preventDefault(); if (drag) { drag = null; } ackNow(); setMode(mode === 'expanded' ? 'collapsed' : 'expanded'); });
 stage.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pet.poke(); setMode(mode === 'expanded' ? 'collapsed' : 'expanded'); } });
 // Petting: hover for a couple of seconds and it falls in love.
 let petTimer = null;
-stage.addEventListener('pointerenter', () => { pet.hovered = true; clearTimeout(petTimer); petTimer = setTimeout(() => { if (!drag) pet.emote(pet.P.hover, 3800); }, pet.P.hoverMs); });
-stage.addEventListener('pointerleave', () => { pet.hovered = false; clearTimeout(petTimer); });
+// (hover is decided by the pet's own pixels, below, not by its whole window)
+function setHovered(v) {
+  if (v === pet.hovered) return;
+  pet.hovered = v; clearTimeout(petTimer);
+  if (v) petTimer = setTimeout(() => { if (!drag && !pet.hide) pet.emote(pet.P.hover, 3800); }, pet.P.hoverMs);
+}
 stage.addEventListener('pointercancel', () => { drag = null; });
 
 // click-through everywhere except our own pixels
 let interactive = null;
 const setInteractive = (v) => { if (v !== interactive) { interactive = v; bridge.ui.interactive(v); } };
-document.addEventListener('mousemove', (e) => setInteractive(!!e.target.closest('[data-hit]') || (drag != null)));
+document.addEventListener('mousemove', (e) => {
+  // the pet's scene has room around it to play in: only the pet itself takes clicks, the rest lets them through
+  const onPet = e.target === canvas ? pet.hitTest(e.offsetX, e.offsetY) : false;
+  setHovered(onPet || (drag != null && e.target === canvas));
+  setInteractive(drag != null || onPet || (!!e.target.closest('[data-hit]') && !e.target.closest('#stage')) || !!e.target.closest('#bubble'));
+});
 document.documentElement.addEventListener('mouseleave', () => { if (!drag) setInteractive(false); });
 
+let lastPtr = null;
 bridge.onCursor((p) => {
   const r = stage.getBoundingClientRect(); const cx = r.left + r.width / 2, cy = r.top + r.height * 0.6;
   const dx = p.x - cx, dy = p.y - cy;
   // follow the cursor anywhere on screen: the direction matters, not the distance (it used to stop past 1400 px)
   const near = 24;                                          // right on top of the pet: look straight ahead
   pet.lookAt(Math.abs(dx) < near && Math.abs(dy) < near ? { x: 0, y: 0 } : { x: Math.max(-1, Math.min(1, dx / 90)), y: Math.max(-1, Math.min(1, dy / 90)) });
+  // how fast the pointer is coming: rushing at the pet makes it dodge (depending on its personality)
+  const now = performance.now(), dt = lastPtr ? (now - lastPtr.t) / 1000 : 0;
+  const speed = dt > 0 && dt < 0.5 ? Math.hypot(p.x - lastPtr.x, p.y - lastPtr.y) / dt : 0;
+  lastPtr = { x: p.x, y: p.y, t: now };
+  if (mode !== 'expanded' && !drag) pet.pointer({ dx, dy, speed });
 });
 bridge.onCommand((c) => {
   if (c.type === 'open') setMode('expanded', c.tab);
@@ -595,7 +613,7 @@ function tourSteps() {
   const mac = S && S.platform === 'darwin', key = S ? prettyHotkey(S.settings.hotkey, mac) : '', optKey = S ? prettyHotkey(S.settings.optimizeHotkey || '', mac) : '';
   const name = pet.spec ? pet.spec.name : 'Tokkie';
   return [
-    { tab: 'usage', title: `Hi, I’m ${name}!`, body: 'I sit on your desktop and keep an eye on your Claude usage. Click me to play, right-click me to open or close this panel, and drag me anywhere.' },
+    { tab: 'usage', title: `Hi, I’m ${name}!`, body: 'I sit on your desktop and keep an eye on your Claude usage. Click me to play (don’t overdo it: I bite), right-click me to open or close this panel, and drag me anywhere. When Claude’s idle, I find things to do.' },
     { tab: 'usage', title: 'Usage', body: 'How much of your plan you’ve used, live, and when you’d run out at this pace. I’ll warn you at 75% and 90%.' },
     { tab: 'plan', title: 'Estimate', body: `Copy a prompt and press ${key} from anywhere: I’ll guess how long it runs and whether it fits before your “Done by” time.` },
     { tab: 'plan', title: 'Optimize', body: `Optimize asks Claude to rewrite a prompt so the run wastes fewer steps. Clearer makes it precise (it may get a bit longer); Shorter trims words. Pick Haiku, Sonnet or Opus to do the rewrite. It’s here, on every prompt in History and on the Claude bar. In Chat or Cowork: copy your prompt, press ${optKey}, then paste.` },

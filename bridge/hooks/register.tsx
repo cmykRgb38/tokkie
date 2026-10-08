@@ -337,7 +337,7 @@ export const register: Register = on => {
           {/* One row: Optimize first, then a compact capsule per item (icon + short reading); everything else is in
               each capsule's hover card. Capsules are neutral; only a problem gets colour. The app rounds a Box only
               through its border, which adds padding: paddingY 0 takes it back. Cards are absolute: nothing moves. */}
-          <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={1} rowGap={0}>
+          <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={1} rowGap={1}>
             {optButton}
             {items.map((it, i) => {
               const color = it.tone === 'bad' || it.tone === 'warn' ? TONE[it.tone] : undefined

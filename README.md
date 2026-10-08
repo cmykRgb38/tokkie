@@ -50,7 +50,7 @@ Tokkie auto-detects Claude Code (`~/.claude`) and Cowork (the Claude desktop app
 
 | | |
 |---|---|
-| **The pet** | **Right-click** opens / closes the panel (also `Enter`). **Click** to play with it. **Drag** to move it. A short tour runs on first launch (Settings → Take the tour to replay). |
+| **The pet** | **Right-click** opens / closes the panel (also `Enter`). **Click** to play with it. **Drag** to move it. A short tour runs on first launch (Settings → Take the tour to replay). It has a life of its own: when Claude's idle it plays a game console, chases a ball or a butterfly, paints, or reads (each personality has favourites). Rush your pointer at it and it may dodge; hold the pointer on it for a pat; poke it too much and it snaps at you, then hides in a box until you leave it alone. When Claude finishes or needs you, it drops everything. |
 | **Dock** | A card **below or above** the pet — or, with **Claude bar**, a one-line bar above Claude Code’s prompt box (drawn by the bridge), while the pet stays on your desktop. Lines: usage % (and `$X/200`), pace / run-out date, status, tokens today, last prompt cost, context, cache timer, agents — each switchable. **Pills** layout has its own picks. |
 | **Floating strip** | For **Chat and Cowork**: the Claude bar’s items in a slim always-on-top strip. Drag it just above Claude’s prompt box (it remembers the spot), hover any item for what it means, and click **Optimize** to rewrite the prompt on your clipboard. Settings → On your desktop. |
 | **Usage tab** | Plan limits, tokens, burn rate, sparkline. |
