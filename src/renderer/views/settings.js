@@ -50,6 +50,8 @@ export function settingsView(root, api) {
   const dayRow = el('div', { class: 'row sub' }, el('div', {}, el('div', { class: 't', text: 'Next reset' }), el('div', { class: 'd', text: 'The date under “Resets …” on Claude’s Usage page. Repeats monthly.' })), dayIn);
   const optModel = mkSeg([['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']], 'optimizerModel');
   const optRow = el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: '✨ Prompt optimizer' }), el('div', { class: 'd', text: 'Haiku: fast & cheapest. Sonnet: reads intent better. Opus: best, slowest, most usage.' })), optModel.node);
+  const optMode = mkSeg([['clearer', '✨ Clearer'], ['shorter', '✂ Shorter']], 'optimizerMode');
+  const optModeRow = el('div', { class: 'row sub' }, el('div', {}, el('div', { class: 't', text: 'Style' }), el('div', { class: 'd', text: 'Clearer adds what Claude would otherwise guess (often a little longer). Shorter keeps the meaning in the fewest tokens.' })), optMode.node);
   const optBtnT = toggle('Optimize button in Claude Code', 'A ✨ Optimize button above Claude’s prompt box rewrites what you typed (Undo puts it back). Needs the bridge.', 'optimizeButton', api);
   const theme = mkSeg([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], 'theme');
   const size = mkSeg([[5, 'S'], [6, 'M'], [8, 'L']], 'scale', Number);
@@ -92,7 +94,7 @@ export function settingsView(root, api) {
   root.append(el('div', { class: 'stack' },
     el('div', { class: 'set' },
       el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Claude Code bridge' }), limitStatus), limitBtn),
-      limitMsg, spendRow, dayRow, optRow, optBtnT.row,
+      limitMsg, spendRow, dayRow, optRow, optModeRow, optBtnT.row,
       el('div', { class: 'row' }, el('div', { class: 't', text: 'Layout' }), layout.node), dockBox,
       el('div', { class: 'row' }, el('div', { class: 't', text: 'Theme' }), theme.node),
       el('div', { class: 'row' }, el('div', { class: 't', text: 'Pet size' }), size.node),
@@ -114,7 +116,7 @@ export function settingsView(root, api) {
   return {
     update(s) {
       S = s; const st = s.settings;
-      theme.set(st.theme); size.set(st.scale); layout.set(st.layout); optModel.set(st.optimizerModel || 'haiku');
+      theme.set(st.theme); size.set(st.scale); layout.set(st.layout); optModel.set(st.optimizerModel || 'haiku'); optMode.set(st.optimizerMode || 'clearer');
       dockBox.hidden = st.layout === 'pet';
       placeRow.hidden = st.layout !== 'dock'; place.set(st.dockPlace || 'below');
       placeNote.hidden = st.layout !== 'dock' || st.dockPlace !== 'claude';

@@ -14,7 +14,7 @@ const DEFAULTS = Object.freeze({
   monsters: { active: '', saved: [], hideOwn: false },
   album: {},                 // species you've met: { 'blob:horns': seed, 'special:rainbow': seed, … }
   seed: null,                // first monster seed (derived from user on first run)
-  window: { x: null, y: null, expanded: false, tab: 'usage' },
+  window: { x: null, y: null, expanded: false, tab: 'usage', panelW: 336, panelH: 504 },
   calib: { five: {}, seven: {} },
   samples: [],               // persisted finished turns (survive log rotation)
   theme: 'auto',            // auto | light | dark
@@ -30,6 +30,7 @@ const DEFAULTS = Object.freeze({
   dockPlace: 'below',        // below | above the pet, or 'claude' = a bar above Claude Code's prompt (drawn by the bridge)
   pills: { usage: true, pace: false, status: false, tokens: true, context: false, cache: false, lastPrompt: false, agents: false },
   optimizerModel: 'haiku',   // haiku | sonnet | opus — what the prompt optimizer asks
+  optimizerMode: 'clearer',  // clearer (adds what Claude would guess) | shorter (same meaning, fewest tokens)
   optimizeButton: true,      // ✨ Optimize on the Claude bar (rewrites what you typed, in place)
   personality: 'cheerful',   // cheerful | playful | sleepy | grumpy | shy
   evolution: { start: 0, archived: 0, stageSeen: 1, display: 0 },   // growth bookkeeping: when feeding began, tokens already pruned, last form celebrated, form shown (0 = newest)

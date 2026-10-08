@@ -123,3 +123,27 @@ test('✨ Optimize on the bar rewrites the typed prompt in place, and Undo puts 
     await ui.unmount()
   }
 })
+
+test('the bar’s model and Clearer/Shorter pickers take effect at once and tell Tokkie', async ($, on) => {
+  const clock = mock.clock(on, { now: 1_900_000_000_000 })
+  const files = fakeHost(on, { cost: 1, limits: [] })
+  const H = '/private/tmp/tokkie-bridge-test/.tokkie'
+  files[`${H}/band.json`] = JSON.stringify({ updatedAt: 1_900_000_000_000 - 1000, show: false, items: [], optimizer: { model: 'haiku', mode: 'clearer' } })
+  let draft = 'please could you maybe fix the login thing if possible thanks', asked: any = null
+  on('prompt.read', () => ({ value: { text: draft, cursor: 0 } }))
+  on('prompt.fill', (_: unknown, e: any) => { draft = e.text; return { isFilled: true } })
+  on('model.complete', (_: unknown, e: any) => { asked = e; return { value: { isAnswered: true, text: '{"optimized":"Fix the login bug.","changes":["Cut filler"],"questions":[]}', usage: { input_tokens: 1, output_tokens: 1 } } } })
+  on('ui.render', ($$: any, e: any) => { const { Box } = $$.ui.resolve(e); return <Box key="engine" /> })
+  await $.session.start({ source: 'startup', cwd: '/work' } as never)
+  await clock.advance(10)
+  const ui = await $.ui.mount({ plugin: 'tokkie-bridge', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
+  await (ui as any).select({ key: 'optmodel', value: 'opus' })
+  await (ui as any).select({ key: 'optmode', value: 'shorter' })
+  expect(JSON.parse(files[`${H}/prefs.json`]).optimizerModel).toBe('opus')
+  expect(JSON.parse(files[`${H}/prefs.json`]).optimizerMode).toBe('shorter')
+  await ui.press({ key: 'opt' } as never)
+  expect(asked.model).toBe('opus')
+  expect(asked.system.includes('as few words as possible')).toBe(true)
+  expect(draft).toBe('Fix the login bug.')
+  await ui.unmount()
+})

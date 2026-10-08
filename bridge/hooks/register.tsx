@@ -91,7 +91,7 @@ async function refreshBand($: Engine) {
     const dir = await tokkieHome($)
     const j = JSON.parse(await $.fs.read(`${dir}/band.json`) as string)
     const fresh = Number.isFinite(j.updatedAt) && (await $.clock.now()) - j.updatedAt < BAND_STALE_MS
-    const optimizer = j.optimizer && ['haiku', 'sonnet', 'opus'].includes(j.optimizer.model) ? { model: j.optimizer.model } : undefined
+    const optimizer = j.optimizer && MODELS.includes(j.optimizer.model) ? { model: j.optimizer.model, mode: j.optimizer.mode === 'shorter' ? 'shorter' : 'clearer' } : undefined
     if (fresh && (j.show === true || optimizer) && Array.isArray(j.items)) {
       const items: BandItem[] = j.items.slice(0, 10).filter((x: any) => x && typeof x.label === 'string' && typeof x.value === 'string')
         .map((x: any) => ({ k: typeof x.k === 'string' ? x.k.slice(0, 16) : '', label: x.label.slice(0, 24), value: x.value.slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: typeof x.tip === 'string' ? x.tip.slice(0, 200) : '' }))
@@ -115,10 +115,21 @@ Rewrite the prompt so that it:
 - states constraints and scope limits (what not to touch);
 - says what "done" looks like and asks Claude to verify it when that makes sense;
 - drops filler and padding, keeping the person's language and tone (if they wrote in Chinese, answer in Chinese).
-Keep it as short as it can be while being clear. Do not pad it.
+Keep it as short as it can be while being clear. Do not pad it: no titles or preambles ("Feature request:", "Task:"),
+no restating the context back, no requirements the person did not ask for. If the prompt is already clear, change little.
 If essential information is missing, do not invent it: add a short [placeholder] only where essential and list it under questions.
 Reply with only a JSON object, no prose and no code fence:
 {"optimized": "<the rewritten prompt>", "changes": ["<up to 4 short phrases>"], "questions": ["<up to 3 short questions, or none>"]}`
+
+// ✂ Shorter: same meaning in as few tokens as possible — nothing added.
+const SHORTER_SYSTEM = `You shorten prompts that a person is about to send to Claude Code, an AI coding agent.
+Rewrite the prompt to say exactly the same thing in as few words as possible: drop filler, politeness, repetition and
+hedging; keep every requirement, name, number and constraint; keep the person's language. Do not add anything new.
+If it is already as short as it can be, return it unchanged.
+Reply with only a JSON object, no prose and no code fence:
+{"optimized": "<the shortened prompt>", "changes": ["<up to 3 short phrases>"], "questions": []}`
+const MODELS = ['haiku', 'sonnet', 'opus']
+const systemFor = (mode: string) => (mode === 'shorter' ? SHORTER_SYSTEM : OPTIMIZER_SYSTEM)
 
 let serving = false
 let sessionKey = ''
@@ -146,8 +157,8 @@ async function serveRequests($: Engine) {
       const out: Record<string, unknown> = { id, at: await $.clock.now() }
       if (req.kind !== 'optimize' || typeof req.prompt !== 'string' || !req.prompt.trim()) out.error = 'bad request'
       else {
-        const model = ['sonnet', 'opus'].includes(req.model) ? req.model : 'haiku'
-        const r = await $.model.complete({ model, system: OPTIMIZER_SYSTEM, prompt: `<prompt>\n${req.prompt.slice(0, 20000)}\n</prompt>`, maxTokens: 3000, effort: 'low' } as any)
+        const model = MODELS.includes(req.model) ? req.model : 'haiku'
+        const r = await $.model.complete({ model, system: systemFor(req.mode), prompt: `<prompt>\n${req.prompt.slice(0, 20000)}\n</prompt>`, maxTokens: 3000, effort: 'low' } as any)
         if (r.isAnswered) { out.text = r.text; out.usage = r.usage; out.model = model }
         else out.error = (r as any).reason === 'api-error' ? `Claude returned an error (${(r as any).status ?? '?'})` : `No answer (${(r as any).reason})`
       }
@@ -173,27 +184,36 @@ function parseOptimized(text: string): { optimized: string; changes: string[]; q
 }
 
 /** ✨ Optimize, from the bar: rewrite what's typed in the prompt box, in place (Undo puts the original back). */
-async function optimizeDraft($: Engine, model: string) {
+async function optimizeDraft($: Engine, model: string, mode: string) {
   const cur = await read($, opt)
   if (cur.busy) return
   const { text } = await $.prompt.read()
   if (!text.trim()) { await update($, opt, () => ({ busy: false, error: 'Type a prompt first, then Optimize.' })); return }
-  await update($, opt, () => ({ busy: true }))
+  await update($, opt, (o) => ({ busy: true, model: o.model, mode: o.mode }))
   try {
-    const r = await $.model.complete({ model, system: OPTIMIZER_SYSTEM, prompt: `<prompt>\n${text.slice(0, 20000)}\n</prompt>`, maxTokens: 3000, effort: 'low' } as any)
+    const r = await $.model.complete({ model, system: systemFor(mode), prompt: `<prompt>\n${text.slice(0, 20000)}\n</prompt>`, maxTokens: 3000, effort: 'low' } as any)
     const parsed = r.isAnswered ? parseOptimized(r.text) : null
     if (!parsed) { await update($, opt, () => ({ busy: false, error: r.isAnswered ? 'Claude’s answer wasn’t usable — try again.' : 'Claude couldn’t answer — try again.' })); return }
     // the person may have kept typing while Claude worked: only replace what we optimized
     const now = (await $.prompt.read()).text
     if (now !== text) { await update($, opt, () => ({ busy: false, error: 'You edited the prompt while it was optimizing — press Optimize again.' })); return }
     await $.prompt.fill({ text: parsed.optimized, mode: 'replace' })
-    await update($, opt, () => ({ busy: false, original: text, optimized: parsed.optimized, before: roughTokens(text), after: roughTokens(parsed.optimized), changes: parsed.changes, questions: parsed.questions }))
+    await update($, opt, (o) => ({ busy: false, model: o.model, mode: o.mode, original: text, optimized: parsed.optimized, before: roughTokens(text), after: roughTokens(parsed.optimized), changes: parsed.changes, questions: parsed.questions }))
   } catch { await update($, opt, () => ({ busy: false, error: 'Something went wrong — try again.' })) }
 }
 async function undoOptimize($: Engine) {
   const cur = await read($, opt)
   if (cur.original) await $.prompt.fill({ text: cur.original, mode: 'replace' })
-  await update($, opt, () => ({ busy: false }))
+  await update($, opt, (o) => ({ busy: false, model: o.model, mode: o.mode }))
+}
+/** A model or mode picked on the bar: used at once, and handed to Tokkie so its Settings match. */
+async function setOptPref($: Engine, key: 'model' | 'mode', value: string) {
+  await update($, opt, (o) => ({ ...o, [key]: value, error: undefined }))
+  try {
+    const dir = await tokkieHome($)
+    const o = await read($, opt)
+    await $.fs.write(`${dir}/prefs.json`, JSON.stringify({ at: await $.clock.now(), optimizerModel: o.model, optimizerMode: o.mode }))
+  } catch { /* Tokkie will just keep its own setting */ }
 }
 
 const TONE: Record<string, string> = { good: '#4fc98a', warn: '#e8b931', bad: '#f06a5f' }
@@ -265,15 +285,28 @@ export const register: Register = on => {
     const table = $.ui.resolve(e) as any
     const { Box, Text, Button } = table
     const o = await read($, opt)
-    const model = b.optimizer ? b.optimizer.model : 'haiku'
-    const label = o.busy ? `✨ Optimizing…` : '✨ Optimize'
-    const optButton = b.optimizer && Button ? <Button key="opt" label={label} onPress={() => { if (!o.busy) void optimizeDraft($, model) }} /> : null
+    // what the bar uses: a pick made on the bar wins until Tokkie's own setting catches up with it
+    const model = o.model && MODELS.includes(o.model) ? o.model : b.optimizer ? b.optimizer.model : 'haiku'
+    const mode = o.mode === 'shorter' || o.mode === 'clearer' ? o.mode : b.optimizer ? b.optimizer.mode : 'clearer'
+    const { Select } = table
+    const label = o.busy ? (mode === 'shorter' ? '✂ Shortening…' : '✨ Optimizing…') : mode === 'shorter' ? '✂ Shorten' : '✨ Optimize'
+    const optButton = b.optimizer && Button ? (
+      <Box key="optbox" flexDirection="row" columnGap={1} alignItems="center">
+        <Button key="opt" label={label} onPress={() => { if (!o.busy) void optimizeDraft($, model, mode) }} />
+        {Select ? <Select key="optmode" options={[{ value: 'clearer', label: '✨ Clearer' }, { value: 'shorter', label: '✂ Shorter' }]} value={mode} onSelect={(v: string) => { void setOptPref($, 'mode', v) }} /> : null}
+        {Select ? <Select key="optmodel" options={[{ value: 'haiku', label: 'Haiku' }, { value: 'sonnet', label: 'Sonnet' }, { value: 'opus', label: 'Opus' }]} value={model} onSelect={(v: string) => { void setOptPref($, 'model', v) }} /> : null}
+      </Box>
+    ) : null
     const undoButton = o.original && Button ? <Button key="undo" label="Undo" onPress={() => { void undoOptimize($) }} /> : null
-    const optLine = o.error ? <Text color={TONE.warn} wrap="truncate">{o.error}</Text>
+    // the result line wraps onto as many rows as it needs, so nothing is cut off
+    const optLine = o.error ? <Text color={TONE.warn} wrap="wrap">{o.error}</Text>
       : o.optimized ? (
-        <Box flexDirection="row" columnGap={1} alignItems="center">
-          <Text dimColor wrap="truncate">✨ {`${o.before} → ${o.after} tokens`}{o.changes && o.changes.length ? ` · ${o.changes.join(' · ')}` : ''}{o.questions && o.questions.length ? ` · fill in: ${o.questions.join('; ')}` : ''}</Text>
-          {undoButton}
+        <Box flexDirection="column">
+          <Box flexDirection="row" columnGap={1} alignItems="flex-start">
+            <Box flexGrow={1} flexShrink={1}><Text dimColor wrap="wrap">{`${mode === 'shorter' ? '✂' : '✨'} ${o.before} → ${o.after} tokens`}{o.changes && o.changes.length ? ` · ${o.changes.join(' · ')}` : ''}</Text></Box>
+            {undoButton}
+          </Box>
+          {o.questions && o.questions.length ? <Text color={TONE.warn} wrap="wrap">Fill in before sending: {o.questions.join(' · ')}</Text> : null}
         </Box>
       ) : null
     if (e.surface !== 'terminal' && table.Svg) {

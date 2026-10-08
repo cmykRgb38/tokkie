@@ -11,7 +11,8 @@ if (!window.tokkie) await import('./dev/mock.js'); // opened in a plain browser:
 const bridge = window.tokkie;
 const M = window.TokkieMonster;
 
-const PANEL_W = 336, PANEL_H = 504, GAP = 6, MARGIN = 14;
+let PANEL_W = 336, PANEL_H = 504;                 // the panel's size: drag its corner to change it (remembered)
+const GAP = 6, MARGIN = 14;
 const TABS = ['usage', 'plan', 'history', 'pets', 'settings'];
 
 const bubbleEl = $('#bubble'), bubbleTitle = $('#bubbleTitle'), bubbleSub = $('#bubbleSub');
@@ -328,8 +329,15 @@ function applyLayout() {
   if (relayout && collapsed && booted) sendLayout();
 }
 
+/** Apply the remembered panel size (and keep the CSS in step). */
+function applyPanelSize(w, h) {
+  PANEL_W = Math.max(336, Math.min(760, Math.round(w))); PANEL_H = Math.max(420, Math.min(1100, Math.round(h)));
+  document.documentElement.style.setProperty('--panel-w', PANEL_W + 'px'); document.documentElement.style.setProperty('--panel-h', PANEL_H + 'px');
+}
+let resizing = null;
 function render() {
   if (!S) return;
+  if (!resizing) { const wv = S.settings.window || {}; if ((wv.panelW || 336) !== PANEL_W || (wv.panelH || 504) !== PANEL_H) { applyPanelSize(wv.panelW || 336, wv.panelH || 504); if (booted && mode === 'expanded') sendLayout(); } }
   pet.setPersonality(S.settings.personality || 'cheerful');
   applyTheme(S.settings);
   const { active, saved } = S.settings.monsters;
@@ -451,6 +459,26 @@ $('.tabs').addEventListener('keydown', (e) => {
   if (n == null) return; e.preventDefault(); const t = TABS[(n + TABS.length) % TABS.length]; selectTab(t); $(`#tab-${t}`).focus();
 });
 $('#collapse').addEventListener('click', () => setMode('collapsed'));
+
+// Resize the panel by dragging its corner. The pet stays put; the panel grows away from it (and evenly sideways).
+const grip = $('#grip');
+grip.addEventListener('pointerdown', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  try { grip.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
+  resizing = { x: e.screenX, y: e.screenY, w: PANEL_W, h: PANEL_H, above: appEl.classList.contains('above'), t: 0 };
+});
+grip.addEventListener('pointermove', (e) => {
+  if (!resizing) return;
+  const dx = e.screenX - resizing.x, dy = e.screenY - resizing.y;
+  applyPanelSize(resizing.w + dx * 2, resizing.h + (resizing.above ? -dy : dy));
+  const now = performance.now(); if (now - resizing.t > 30) { resizing.t = now; sendLayout(); }
+});
+const endResize = () => {
+  if (!resizing) return; resizing = null; sendLayout();
+  bridge.setSettings({ window: { panelW: PANEL_W, panelH: PANEL_H } });
+};
+grip.addEventListener('pointerup', endResize); grip.addEventListener('pointercancel', endResize);
+grip.addEventListener('dblclick', () => { applyPanelSize(336, 504); sendLayout(); bridge.setSettings({ window: { panelW: 336, panelH: 504 } }); });
 
 addEventListener('keydown', (e) => { if (e.key === 'Escape' && mode === 'expanded' && !e.defaultPrevented) setMode('collapsed'); });
 

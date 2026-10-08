@@ -72,7 +72,7 @@ let bandLast = '', bandAt = 0;
 function writeBand(b) {
   try {
     const avatar = b && typeof b.avatar === 'string' && /^<svg[^]*<\/svg>$/.test(b.avatar) && b.avatar.length < 20000 && !/<script|on\w+=/i.test(b.avatar) ? b.avatar : '';
-    const optimizer = settings.get('optimizeButton') && setup.bridgeStatus().installed ? { model: settings.get('optimizerModel') || 'haiku' } : undefined;
+    const optimizer = settings.get('optimizeButton') && setup.bridgeStatus().installed ? { model: settings.get('optimizerModel') || 'haiku', mode: settings.get('optimizerMode') || 'clearer' } : undefined;
     const clean = { show: !!(b && b.show), optimizer, alert: b && typeof b.alert === 'string' ? b.alert.slice(0, 120) : '', avatar,
       items: (b && Array.isArray(b.items) ? b.items : []).slice(0, 10).map((x) => ({ k: String(x.k || '').slice(0, 16), label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: String(x.tip || '').slice(0, 200) })) };
     const key = JSON.stringify(clean), now = Date.now();
@@ -212,7 +212,7 @@ function setupIpc() {
   ipcMain.handle('settings:set', (_e, patch) => {
     const out = { ok: true };
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, error: 'bad request' };
-    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton'];
+    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton', 'optimizerMode'];
     const clean = {};
     for (const k of allowed) if (Object.prototype.hasOwnProperty.call(patch, k)) clean[k] = patch[k];
     const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'alertBubble', 'speechBubble'];
@@ -234,9 +234,10 @@ function setupIpc() {
     if ('dockPlace' in clean && !['below', 'above', 'claude'].includes(clean.dockPlace)) delete clean.dockPlace;
     if ('optimizerModel' in clean && !['haiku', 'sonnet', 'opus'].includes(clean.optimizerModel)) delete clean.optimizerModel;
     if ('optimizeButton' in clean) clean.optimizeButton = !!clean.optimizeButton;
+    if ('optimizerMode' in clean && !['clearer', 'shorter'].includes(clean.optimizerMode)) delete clean.optimizerMode;
     if ('hotkey' in clean && (typeof clean.hotkey !== 'string' || clean.hotkey.length > 60)) delete clean.hotkey;
     if ('monsters' in clean && (!clean.monsters || typeof clean.monsters !== 'object')) delete clean.monsters;
-    if ('window' in clean) { const w = clean.window || {}; clean.window = {}; for (const k of ['x', 'y']) if (Number.isFinite(w[k])) clean.window[k] = Math.round(w[k]); if (typeof w.expanded === 'boolean') clean.window.expanded = w.expanded; if (['usage', 'plan', 'history', 'pets', 'settings'].includes(w.tab)) clean.window.tab = w.tab; }
+    if ('window' in clean) { const w = clean.window || {}; clean.window = {}; for (const k of ['x', 'y']) if (Number.isFinite(w[k])) clean.window[k] = Math.round(w[k]); if (typeof w.expanded === 'boolean') clean.window.expanded = w.expanded; if (['usage', 'plan', 'history', 'pets', 'settings'].includes(w.tab)) clean.window.tab = w.tab; for (const [k, lo, hi] of [['panelW', 336, 760], ['panelH', 420, 1100]]) if (Number.isFinite(w[k])) clean.window[k] = Math.max(lo, Math.min(hi, Math.round(w[k]))); }
     if ('hotkey' in clean) {
       const prev = settings.get('hotkey');
       if (!registerHotkey(clean.hotkey)) { registerHotkey(prev); delete clean.hotkey; out.ok = false; out.error = 'That shortcut is taken or invalid.'; }
@@ -329,7 +330,7 @@ function setupIpc() {
     if (optimizing) return { ok: false, error: 'Already optimizing one — hang on.' };
     optimizing = true;
     try {
-      const r = await require('../core/optimizer').optimize(require('../core/paths').tokkieHome(), text, settings.get('optimizerModel'));
+      const r = await require('../core/optimizer').optimize(require('../core/paths').tokkieHome(), text, settings.get('optimizerModel'), { mode: settings.get('optimizerMode') });
       if (!r.ok) return r;
       const { estimateTokens } = require('../core/tokens');
       return { ...r, before: { promptTokens: estimateTokens(text) }, after: { promptTokens: estimateTokens(r.optimized) } };
@@ -393,6 +394,21 @@ else {
     });
     setInterval(() => { if (win && win.isVisible()) send('state', snapshot()); }, STATE_MS);
     setInterval(pollClipboard, 700);
+    // A model or Clearer/Shorter picked on the Claude bar becomes Tokkie's setting too.
+    let prefsAt = 0;
+    setInterval(() => {
+      try {
+        const f = path.join(require('../core/paths').tokkieHome(), 'prefs.json');
+        const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+        if (!(j.at > prefsAt)) return;
+        const first = prefsAt === 0; prefsAt = j.at;
+        if (first && Date.now() - j.at > 10e3) return;          // an old pick from before Tokkie started: ignore
+        const patch = {};
+        if (['haiku', 'sonnet', 'opus'].includes(j.optimizerModel)) patch.optimizerModel = j.optimizerModel;
+        if (['clearer', 'shorter'].includes(j.optimizerMode)) patch.optimizerMode = j.optimizerMode;
+        if (Object.keys(patch).length) { settings.set(patch); send('state', snapshot()); }
+      } catch { /* no picks yet */ }
+    }, 2000);
     // Pointer position → eyes follow the cursor (only while visible; ~12 Hz is plenty).
     setInterval(() => {
       if (!win || !win.isVisible()) return;

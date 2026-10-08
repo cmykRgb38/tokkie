@@ -26,13 +26,13 @@ function parseReply(text) {
   } catch { return null; }
 }
 
-async function optimize(home, prompt, model = 'haiku', { claimMs = CLAIM_MS, answerMs = ANSWER_MS } = {}) {
+async function optimize(home, prompt, model = 'haiku', { claimMs = CLAIM_MS, answerMs = ANSWER_MS, mode = 'clearer' } = {}) {
   const id = crypto.randomBytes(8).toString('hex');
   const dirs = { req: path.join(home, 'requests'), claim: path.join(home, 'claims'), res: path.join(home, 'responses') };
   for (const d of Object.values(dirs)) fs.mkdirSync(d, { recursive: true });
   const files = { req: path.join(dirs.req, id + '.json'), claim: path.join(dirs.claim, id + '.json'), res: path.join(dirs.res, id + '.json') };
   const cleanup = () => { for (const f of Object.values(files)) fs.rmSync(f, { force: true }); };
-  fs.writeFileSync(files.req, JSON.stringify({ kind: 'optimize', model: ['sonnet', 'opus'].includes(model) ? model : 'haiku', prompt: String(prompt).slice(0, 20000), at: Date.now() }));
+  fs.writeFileSync(files.req, JSON.stringify({ kind: 'optimize', model: ['sonnet', 'opus'].includes(model) ? model : 'haiku', prompt: String(prompt).slice(0, 20000), mode: mode === 'shorter' ? 'shorter' : 'clearer', at: Date.now() }));
   try {
     const t0 = Date.now();
     while (!exists(files.claim) && !exists(files.res)) {
