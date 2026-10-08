@@ -21,8 +21,8 @@ export function petsView(root, api) {
   const evoNote = el('p', { class: 'muted' });
   const evoCard = el('div', { class: 'evo' }, evoTitle, formsRow, evoBar, evoNote);
   let formPets = [];
-  const emotes = el('div', { class: 'chips', role: 'group', 'aria-label': 'Preview an emotion' }, EMOTION_LABELS.map(([m, l]) => el('button', { class: 'btn sm quiet', type: 'button', text: l, onclick: () => api.emote(m) })));
-  const persona = el('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'Personality' }, PERSONALITIES.map(([v, l, d]) => el('button', { class: 'btn sm', type: 'button', role: 'radio', 'data-v': v, 'aria-checked': 'false', text: l, title: d, onclick: () => api.setSettings({ personality: v }) })));
+  const emotes = el('div', { class: 'chips emotes', role: 'group', 'aria-label': 'Preview an emotion' }, EMOTION_LABELS.map(([m, l]) => el('button', { class: 'btn sm', type: 'button', text: l, onclick: () => api.emote(m) })));
+  const persona = el('div', { class: 'chips persona', role: 'radiogroup', 'aria-label': 'Personality' }, PERSONALITIES.map(([v, l, d]) => el('button', { class: 'btn sm', type: 'button', role: 'radio', 'data-v': v, 'aria-checked': 'false', text: l, title: d, onclick: () => api.setSettings({ personality: v }) })));
   const personaNote = el('p', { class: 'muted' });
   // Secret code → special pet
   const codeIn = el('input', { class: 'input', type: 'text', placeholder: 'Secret code', 'aria-label': 'Secret code', autocomplete: 'off', spellcheck: 'false', style: 'flex:1' });
@@ -45,15 +45,29 @@ export function petsView(root, api) {
   const albumGrid = el('div', { class: 'album' });
   const albumNote = el('p', { class: 'muted', text: 'Generate pets to discover species. Secret ones are 1 in 100 — or need a code.' });
   const bringBack = el('button', { class: 'btn sm quiet', type: 'button', hidden: true });
-  root.append(el('div', { class: 'stack' },
-    evoCard,
-    el('div', { class: 'row', style: 'gap:8px' }, reroll, save), note, slotsBox, count, bringBack,
-    el('div', { class: 'row', style: 'gap:8px' }, codeIn, codeBtn), codeMsg,
-    el('div', { class: 'divider' }), albumHead, albumGrid, albumNote,
-    el('div', { class: 'divider' }), el('div', { class: 'label', text: 'Personality' }), persona, personaNote,
-    el('div', { class: 'divider' }), el('div', { class: 'label', text: 'Preview an emotion' }),
-    el('p', { class: 'muted', style: 'margin-top:-8px', text: 'Plays it once so you can see it — this doesn’t change the personality.' }), emotes,
-    el('p', { class: 'muted', text: 'Hover over your pet to pet it. Poke it a few times and see what happens.' })));
+  // Three small sections instead of one long scroll: your pet · your collection · the album
+  const undoNote = el('div', { class: 'note', hidden: true });
+  const luckyMsg = el('p', { class: 'muted', hidden: true, style: 'color:var(--good)' });
+  const sections = {
+    pet: el('div', { class: 'stack' }, evoCard,
+      el('div', { class: 'label', text: 'Personality' }), persona, personaNote,
+      el('div', { class: 'divider' }), el('div', { class: 'label', text: 'Preview an emotion' }),
+      el('p', { class: 'muted', style: 'margin-top:-8px', text: 'Plays it once so you can see it. It doesn’t change the personality.' }), emotes,
+      el('p', { class: 'muted', text: 'Hover over your pet to pet it. Poke it a few times and see what happens.' })),
+    collection: el('div', { class: 'stack' }, el('div', { class: 'row', style: 'gap:8px' }, reroll, save), luckyMsg, note, undoNote, slotsBox, count, bringBack),
+    album: el('div', { class: 'stack' }, albumHead, albumGrid, albumNote, el('div', { class: 'divider' }),
+      el('div', { class: 'label', text: 'Secret code' }), el('div', { class: 'row', style: 'gap:8px' }, codeIn, codeBtn), codeMsg),
+  };
+  let section = 'pet';
+  const subnav = el('div', { class: 'seg subnav', role: 'tablist', 'aria-label': 'Pets sections' }, [['pet', 'My pet'], ['collection', 'Collection'], ['album', 'Album']].map(([k, l]) =>
+    el('button', { type: 'button', role: 'tab', 'data-v': k, 'aria-pressed': String(k === section), text: l, onclick: () => showSection(k) })));
+  function showSection(k) {
+    section = k;
+    for (const [name, node] of Object.entries(sections)) node.hidden = name !== k;
+    subnav.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === k)));
+  }
+  root.append(el('div', { class: 'stack' }, subnav, ...Object.values(sections)));
+  showSection('pet');
 
   let S = null;
   const setM = (patch) => api.setSettings({ monsters: { ...S.settings.monsters, ...patch } });
@@ -65,10 +79,9 @@ export function petsView(root, api) {
       const kind = M.SPECIAL_KINDS[Math.floor(Math.random() * M.SPECIAL_KINDS.length)];
       const seed = `sp:${kind}:${id.slice(0, 8)}`;
       setM({ active: seed });
-      codeMsg.hidden = false; codeMsg.style.color = 'var(--good)';
-      codeMsg.textContent = `✨ Lucky! You found ${M.generate(seed).name}, a rare ${M.speciesName('special:' + kind)} pet (1 in 100). Save it before you roll again!`;
+      luckyMsg.hidden = false; luckyMsg.textContent = `✨ Lucky! You found ${M.generate(seed).name}, a rare ${M.speciesName('special:' + kind)} pet (1 in 100). Save it before you roll again!`;
       api.emote('done');
-    } else { setM({ active: 'm' + id }); codeMsg.hidden = true; }
+    } else { setM({ active: 'm' + id }); luckyMsg.hidden = true; }
   });
   save.addEventListener('click', () => { const { active, saved } = S.settings.monsters; if (saved.length < MAX && !saved.includes(active) && active !== S.signature) setM({ saved: [...saved, active] }); });
 
@@ -90,7 +103,13 @@ export function petsView(root, api) {
       let next = active;
       if (active === seed) next = ownShown ? S.signature : left[0] || 'm' + Math.random().toString(36).slice(2, 12).padEnd(10, '0');
       const keep = !ownShown && !left.length ? [next] : left;
+      const before = { ...S.settings.monsters };
       setM({ saved: keep, active: next, hideOwn: own ? true : hideOwn });
+      // a safety net: put it back within a few seconds
+      clearTimeout(undoNote._t);
+      undoNote.hidden = false;
+      undoNote.replaceChildren(el('span', { text: `Removed ${spec.name}. ` }), el('button', { class: 'btn sm', type: 'button', text: 'Undo', onclick: () => { api.setSettings({ monsters: before }); undoNote.hidden = true; } }));
+      undoNote._t = setTimeout(() => { undoNote.hidden = true; }, 6000);
     });
     return el('div', { class: 'slotwrap' }, b, d);
   }
@@ -144,7 +163,8 @@ export function petsView(root, api) {
       const spec = M.generate(active);
       const isSaved = saved.includes(active) || active === s.signature;
       save.disabled = isSaved || saved.length >= MAX;
-      save.lastChild.textContent = isSaved ? 'Saved' : 'Save';
+      save.lastChild.textContent = isSaved ? 'Saved ✓' : 'Save';
+      save.classList.toggle('is-done', isSaved);
       note.hidden = isSaved;
       if (!isSaved) note.replaceChildren(el('b', { text: spec.name }), saved.length >= MAX ? ' is new — your collection is full, remove one to keep it.' : ' is new and not saved yet. Save to keep it, or generate another.');
       count.textContent = `${saved.length} of ${MAX} saved · generate as many as you like`;

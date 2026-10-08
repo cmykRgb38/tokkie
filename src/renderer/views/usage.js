@@ -1,4 +1,4 @@
-import { el, icon, fmtTokens, fmtDur, fmtPct, clamp } from '../util.js';
+import { el, icon, fmtTokens, fmtDur, fmtPct, clamp, fmtRunOut } from '../util.js';
 
 /** Colour by how much is USED (matches Claude's own Settings → Usage bar, which fills as you use more). */
 export const kindUsed = (used) => (used >= 90 ? 'bad' : used >= 70 ? 'warn' : 'good');
@@ -24,6 +24,7 @@ function meterNode(title, id, api) {
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { e.stopPropagation(); syncRow.hidden = true; syncBtn.hidden = false; } });
   syncBtn.addEventListener('click', () => { syncRow.hidden = false; syncBtn.hidden = true; msg.textContent = ''; input.focus(); });
   const root = el('div', { class: 'meter' }, el('div', { class: 'top' }, el('span', { class: 'label', text: title }), val), bar, foot, el('div', { class: 'syncwrap' }, syncBtn, syncRow));
+  syncBtn.className = 'btn sm';                       // a real button, like Clipboard and Optimize elsewhere
   return {
     root,
     set(m, now) {
@@ -37,15 +38,17 @@ function meterNode(title, id, api) {
         : age < 90 ? 'just now' : `Claude's last reading ${fmtDur(age)} ago`;
       const how = m.mode === 'dollars' ? 'Claude only saves a reading now and then. Since then, Claude Code spend is exact (from the bridge); Cowork and Chat are estimated from tokens.'
         : m.approx ? 'Claude only saves a reading now and then. Tokkie adds what you have used since, calibrated against Claude’s earlier readings.' : '';
-      const parts = [el('span', { text: note, title: how })];
+      // what matters first: the pace/run-out line, then dollars, then where the number comes from
+      const parts = [];
+      if (m.pace) {
+        const p = m.pace, out = p.runOutAt ? fmtRunOut(p.runOutAt, now) : null;
+        const txt = out ? `At this pace you run out ${out}` : p.pace > 0 ? `Using ${Math.round(p.pace)}% faster than the clock` : `On pace · ${Math.round(-p.pace)}% to spare`;
+        parts.push(el('span', { class: 'pace', 'data-k': p.tone, text: txt, title: `${fmtPct(m.pct)}% used, ${Math.round(p.elapsed)}% of this period gone` }));
+      }
       if (m.limitUsd) parts.push(el('span', { class: 'val', text: `$${m.usd.toFixed(2)} of $${Math.round(m.limitUsd)}` }));
       else if (m.id === 'extra') parts.push(el('button', { class: 'btn sm quiet', type: 'button', text: 'Claude shows a $ limit? Enter it →', title: 'Type the $ limit from Claude → Settings → Usage (e.g. $600) for dollars and a live estimate', onclick: () => api.openTab('settings') }));
       if (m.resetsAt && m.resetsAt > now) parts.push(el('span', { text: `resets in ${fmtDur((m.resetsAt - now) / 1000)}` }));
-      if (m.pace) {
-        const p = m.pace, out = p.runOutAt ? new Date(p.runOutAt).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : null;
-        const txt = out ? `At this pace you run out ~${out}` : p.pace > 0 ? `Using ${Math.round(p.pace)}% faster than the clock` : `On pace · ${Math.round(-p.pace)}% to spare`;
-        parts.push(el('span', { class: 'pace', 'data-k': p.tone, text: txt, title: `${fmtPct(m.pct)}% used, ${Math.round(p.elapsed)}% of this period gone` }));
-      }
+      parts.push(el('span', { class: 'prov', text: note, title: how }));
       foot.replaceChildren(...parts);
     },
   };
@@ -75,6 +78,7 @@ export function usageView(root, api) {
   const vToday = el('div', { class: 'v' }), vFive = el('div', { class: 'v' }), vBurn = el('div', { class: 'v' });
   const stat = (k, v) => el('div', { class: 'stat' }, el('div', { class: 'k', text: k }), v);
   const stats = el('div', { class: 'stats' }, stat('Today', vToday), stat('Last 5 hours', vFive), stat('Burn rate', vBurn));
+  const fiveK = stats.children[1].firstChild;
 
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('class', 'spark'); svg.setAttribute('viewBox', '0 0 300 52'); svg.setAttribute('preserveAspectRatio', 'none'); svg.setAttribute('role', 'img');
@@ -103,10 +107,15 @@ export function usageView(root, api) {
       const ids = meters.map((m) => m.id).join() + (meters.length ? '' : S.hook && S.hook.installed ? 'w' : 'c');
       if (ids !== lastIds || metersBox.childElementCount !== list.length) { metersBox.replaceChildren(...list); lastIds = ids; }
 
-      vToday.textContent = fmtTokens(S.tokens.today); vFive.textContent = fmtTokens(S.tokens.last5h);
+      vToday.textContent = fmtTokens(S.tokens.today);
+      const sameAsToday = Math.abs(S.tokens.last5h - S.tokens.today) < Math.max(1, S.tokens.today * 0.02);
+      fiveK.textContent = sameAsToday ? 'This week' : 'Last 5 hours';
+      vFive.textContent = fmtTokens(sameAsToday ? S.tokens.week : S.tokens.last5h);
       vBurn.textContent = S.tokens.burn > 50 ? `${fmtTokens(S.tokens.burn)}/min` : 'idle';
       const sp = S.spark, max = Math.max(1, ...sp), W = 300, H = 52, step = W / (sp.length - 1);
-      const pts = sp.map((v, i) => [i * step, H - 3 - (v / max) * (H - 9)]);
+      // square-root scale: one big spike no longer flattens the rest of the hour into a line
+      const sq = Math.sqrt(max);
+      const pts = sp.map((v, i) => [i * step, H - 3 - (Math.sqrt(v) / sq) * (H - 9)]);
       const d = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
       line.setAttribute('d', d); area.setAttribute('d', `${d} L${W} ${H} L0 ${H} Z`);
       sparkNote.textContent = max > 1 ? `peak ${fmtTokens(max)}/min` : 'quiet hour';

@@ -49,6 +49,8 @@ export function planView(root, api) {
   const clipBtn = el('button', { class: 'btn sm', type: 'button', title: 'Estimate whatever is on your clipboard', onclick: () => api.estimateClipboard() }, icon('clip'), 'Clipboard');
   const out = el('div', { class: 'stack', 'aria-live': 'polite' });
   ta.maxLength = 50000;
+  optBtn.disabled = true;                                   // nothing to optimize yet
+  ta.addEventListener('input', () => { optBtn.disabled = !ta.value.trim(); });
 
   const runsBox = el('div', { class: 'runs' });
   root.append(el('div', { class: 'stack' },
@@ -179,7 +181,7 @@ export function planView(root, api) {
     },
     flash,
     setText(text) { ta.value = text.slice(0, 20000); run(); },
-    setResult(text, result) { ta.value = text.slice(0, 20000); charsText = `${text.length.toLocaleString()} chars · ≈${fmtTokens(result.promptTokens)} tokens`; render(result); },
+    setResult(text, result) { ta.value = text.slice(0, 20000); optBtn.disabled = !ta.value.trim(); charsText = `${text.length.toLocaleString()} chars · ≈${fmtTokens(result.promptTokens)} tokens`; render(result); },
     focus() { ta.focus(); },
   };
 }

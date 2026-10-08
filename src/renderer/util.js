@@ -60,3 +60,19 @@ export function parseTime(input) {
 }
 /** "18:30" → local-time label (respecting the user's 12/24h preference). */
 export function labelForHHMM(hhmm) { const [h, m] = hhmm.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return fmtTime(d.getTime()); }
+
+/** When a limit runs out, said one way everywhere: "today 7:50 pm", "tomorrow 9:10 am" or "Sat 10 Oct, 7:50 am" (to 10 minutes). */
+export function fmtRunOut(ts, now = Date.now()) {
+  const d = new Date(Math.round(ts / 600e3) * 600e3);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const day0 = new Date(now); day0.setHours(0, 0, 0, 0);
+  const days = Math.floor((d.getTime() - day0.getTime()) / 86400e3);
+  if (days === 0) return `today ${time}`;
+  if (days === 1) return `tomorrow ${time}`;
+  return `${d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}, ${time}`;
+}
+/** Short form for tight spots (Dock, Claude bar): "today 7:50 pm" / "Sat 10 Oct". */
+export function fmtRunOutShort(ts, now = Date.now()) {
+  const f = fmtRunOut(ts, now);
+  return /^(today|tomorrow)/.test(f) ? f : f.split(',')[0];
+}

@@ -1,4 +1,4 @@
-import { $, clamp, fmtDur, fmtClockDur, fmtTokens, fmtRange } from './util.js';
+import { $, clamp, fmtDur, fmtClockDur, fmtTokens, fmtRange, fmtRunOut, fmtRunOutShort } from './util.js';
 import { Pet, EMOTES, PERSONALITY } from './pet.js';
 import { usageView, kindUsed } from './views/usage.js';
 import { alertState, acknowledge } from './alerts.js';
@@ -188,11 +188,11 @@ function dockLines(S, d, on = S.settings.dock || {}) {
   if (on.pace !== false && m && m.pace) {
     const p = m.pace, tone = p.tone === 'alert' ? 'bad' : p.tone === 'fast' ? 'warn' : 'good';
     const when = p.runOutAt ? new Date(p.runOutAt) : null;
-    const whenTxt = when ? (when.toDateString() === new Date(now).toDateString() ? when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : when.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })) : '';
-    const v = p.runOutAt ? `out ~${whenTxt}` : p.pace > 0 ? `+${Math.round(p.pace)}% fast` : `${Math.round(-p.pace)}% under`;
-    out.push({ k: 'pace', label: 'Pace', value: v, pill: p.runOutAt ? `out ~${whenTxt}` : v, tone, title: `${Math.round(m.pct)}% used with ${Math.round(p.elapsed)}% of the period gone${p.runOutAt ? ' — at this rate you run out before it resets' : ''}` });
+    const whenTxt = when ? fmtRunOutShort(p.runOutAt, now) : '';
+    const v = p.runOutAt ? `out ${whenTxt}` : p.pace > 0 ? `+${Math.round(p.pace)}% fast` : `${Math.round(-p.pace)}% under`;
+    out.push({ k: 'pace', label: 'Pace', value: v, pill: v, tone, title: `${Math.round(m.pct)}% used with ${Math.round(p.elapsed)}% of the period gone${p.runOutAt ? ' — at this rate you run out before it resets' : ''}` });
   }
-  if (on.status !== false) out.push({ k: 'status', label: 'Status', value: d.chipText, pill: d.chipText, tone: d.chipK === 'live' ? '' : '', dot: S.active ? 'live' : null, title: d.text });
+  if (on.status !== false) out.push({ k: 'status', label: 'Status', value: d.chipText, pill: d.chipText, tone: d.chipK === 'warn' ? 'warn' : '', dot: d.chipK === 'warn' ? 'warn' : S.active ? 'live' : null, title: d.text });
   if (on.tokens !== false) out.push({ k: 'tokens', label: 'Today', pill: `${fmtTokens(S.tokens.today)} today`, value: fmtTokens(S.tokens.today) + (S.bridge && S.bridge.todayUsd >= 0.01 ? ` · $${S.bridge.todayUsd.toFixed(2)}` : ''), title: 'Tokens used today (Claude Code + Cowork)' + (S.bridge && S.bridge.todayUsd >= 0.01 ? '; dollars are exact Claude Code spend' : '') });
   if (on.lastPrompt !== false && S.lastPrompt && now - S.lastPrompt.at < 12 * 3600e3) out.push({ k: 'lastPrompt', label: 'Last prompt', value: `$${S.lastPrompt.usd.toFixed(2)}`, pill: `last $${S.lastPrompt.usd.toFixed(2)}`, title: 'Exact cost of your last Claude Code prompt' });
   if (on.context !== false && S.context && S.cache && now - S.cache.at < 3600e3) {
@@ -238,7 +238,7 @@ function checkWarnings(S) {
   for (const m of S.meters || []) {
     const hit = levels.filter((l) => m.pct >= l).pop() || 0;
     if (hit > (warned[m.id] || 0)) {
-      warnBubble = { title: `${m.label}: ${Math.round(m.pct)}% used`, sub: m.pace && m.pace.runOutAt ? `At this pace you run out ~${new Date(m.pace.runOutAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : hit >= 90 ? 'Nearly out — save it for what matters' : 'Three quarters gone', until: Date.now() + 12000 };
+      warnBubble = { id: m.id, hit, until: Date.now() + 12000 };   // its text is worked out on every render, so it never disagrees with the panel
       pet.emote('surprised', 1500);
     }
     if (hit < (warned[m.id] || 0) && m.pct < 70) warned[m.id] = 0;     // it reset: arm again
@@ -284,7 +284,7 @@ function barTip(l) {
 function barText(l) {
   const v = String(l.value);
   if (l.k === 'usage') return v.replace(/\/\d+( · |$)/, '$1');                       // ≈58% · $115/200 → ≈58% · $115
-  if (l.k === 'pace') return v.replace(/^out ~\w{3} /, 'out ');               // out ~Mon 12 Oct → out 12 Oct
+  if (l.k === 'pace') return v;
   if (l.k === 'status') return v.replace(/ · (\d+\w*)( \d+s)? ago$/, ' $1');   // Done · 1m 19s ago → Done 1m
   if (l.k === 'context') return v.replace(/ · \d+%$/, '');
   if (l.k === 'cache') return v.replace(' left', '');
@@ -349,7 +349,6 @@ function render() {
     pet.setForm(pet.form.stage, pet.form.fat);
   }
   syncEvolution(ev);
-  $('#petTraits').textContent = `${ev.name} · ${fmtTokens(ev.eaten)} eaten`;
   if (pet.scale !== S.settings.scale) { pet.setScale(S.settings.scale); sendLayout(); }
 
   if (lastEnd !== null && (S.lastTurnEnd || 0) > lastEnd) doneUntil = S.now + 4000;   // first state only sets the baseline, so a turn finishing right after launch still celebrates
@@ -365,6 +364,7 @@ function render() {
   const enabled = S.settings.alertBubble !== false;
   const al = forced && Date.now() < forced.until ? { kind: forced.kind, since: S.now - 150000, quietMs: 90000 } : alertState(S, acked, enabled);
   const showBubble = S.settings.speechBubble !== false;
+  if (al && al.kind === 'ask') { d.chipText = `Needs you? · quiet ${fmtDur(al.quietMs / 1000)}`; d.chipK = 'warn'; }   // one story: the chip, Dock and bubble agree
   if (al && mode !== 'expanded') {
     d.mood = al.kind === 'done' ? 'alert' : 'ask';
     bubbleEl.hidden = !showBubble; bubbleEl.dataset.kind = al.kind;
@@ -375,7 +375,10 @@ function render() {
     d.mood = fitAlert.kind === 'done' ? 'stress' : d.mood;
     bubbleEl.hidden = false; bubbleEl.dataset.kind = fitAlert.kind; bubbleTitle.textContent = fitAlert.title; bubbleSub.textContent = fitAlert.sub;
   } else if (warnBubble && Date.now() < warnBubble.until && mode !== 'expanded' && showBubble) {
-    bubbleEl.hidden = false; bubbleEl.dataset.kind = 'ask'; bubbleTitle.textContent = warnBubble.title; bubbleSub.textContent = warnBubble.sub;
+    const wm = (S.meters || []).find((x) => x.id === warnBubble.id);
+    bubbleEl.hidden = false; bubbleEl.dataset.kind = 'ask';
+    bubbleTitle.textContent = wm ? `${wm.label}: ${Math.round(wm.pct)}% used` : 'Running low';
+    bubbleSub.textContent = wm && wm.pace && wm.pace.runOutAt ? `At this pace you run out ${fmtRunOut(wm.pace.runOutAt, S.now)}` : warnBubble.hit >= 90 ? 'Nearly out — save it for what matters' : 'Three quarters gone';
   } else if (Date.now() < evoBubbleUntil && evoBubble && mode !== 'expanded' && showBubble) {
     bubbleEl.hidden = false; bubbleEl.dataset.kind = 'evo'; bubbleTitle.textContent = '✨ ' + evoBubble.title; bubbleSub.textContent = evoBubble.sub;
   } else bubbleEl.hidden = true;
@@ -387,6 +390,7 @@ function render() {
   const inClaude = !!lines && place === 'claude';
   bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S), avatar: inClaude ? petAvatar() : '' });
   chip.textContent = d.chipText; chip.dataset.k = d.chipK;
+  $('#petTraits').textContent = ev.eaten < 1000 ? `${ev.name} · just hatched` : `${ev.name} · ${fmtTokens(ev.eaten)} eaten`;
 
   if (mode === 'expanded') { for (const t of TABS) if (t === tab) views[t].update(S); }
   else views.usage.update(S);

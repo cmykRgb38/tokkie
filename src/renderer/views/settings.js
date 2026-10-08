@@ -44,8 +44,9 @@ export function settingsView(root, api) {
   const place = mkSeg([['below', 'Below'], ['above', 'Above'], ['claude', 'Claude bar']], 'dockPlace');
   const placeNote = el('div', { class: 'd note-inline' });
   const placeRow = field('Position', 'Where the Dock sits: under or over your pet, or as a bar above Claude Code’s prompt box.', place.node, placeNote);
-  const itemsTitle = el('div', { class: 'subhead', text: 'Shown' });
-  const dockBox = el('div', { class: 'dockset' }, placeRow, itemsTitle, ...dockToggles.map((t) => t.row));
+  const itemsSummary = el('summary', { class: 'subhead' });
+  const itemsBox = el('details', { class: 'items' }, itemsSummary, ...dockToggles.map((t) => t.row));
+  const dockBox = el('div', { class: 'dockset' }, placeRow, itemsBox);
 
   const spendIn = el('input', { class: 'input', type: 'number', min: 0, step: 10, 'aria-label': 'Monthly spend limit in dollars', placeholder: 'Off' });
   spendIn.addEventListener('change', () => api.setSettings({ spendLimitUsd: Number(spendIn.value) || 0 }));
@@ -58,7 +59,8 @@ export function settingsView(root, api) {
     return d.toISOString().slice(0, 10);
   };
   const spendRow = field('Spend limit ($ per month)', 'If Claude’s Usage page shows a dollar limit, enter it to see dollars.', el('div', { class: 'with-unit' }, el('span', { class: 'unit', text: '$' }), spendIn));
-  const dayRow = field('Next reset', 'The date under “Resets …” on Claude’s Usage page. Repeats monthly.', dayIn);
+  const dayHint = el('div', { class: 'd' });
+  const dayRow = field('Next reset', 'The date under “Resets …” on Claude’s Usage page.', dayIn, dayHint);
   const optModel = mkSeg([['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']], 'optimizerModel');
   const optRow = field('Model', 'Haiku is fast and cheapest. Sonnet reads intent better. Opus is best, slowest and uses the most.', optModel.node);
   const optMode = mkSeg([['clearer', '✨ Clearer'], ['shorter', '✂ Shorter']], 'optimizerMode');
@@ -110,7 +112,7 @@ export function settingsView(root, api) {
     hotStatus, hotMsg);
   root.append(el('div', { class: 'settings' },
     group('Claude Code', bridgeRow, spendRow, dayRow),
-    group('✨ Prompt optimizer', optRow, optModeRow, optBtnT.row),
+    group('Prompt optimizer', optRow, optModeRow, optBtnT.row),
     group('On your desktop', layoutRow, dockBox),
     group('Appearance', field('Theme', null, theme.node), field('Pet size', null, size.node)),
     group('Estimate', hotRow, clip.row),
@@ -140,11 +142,14 @@ export function settingsView(root, api) {
         ? 'Shown as a bar above Claude Code’s prompt box (desktop Code tab and terminal), starting with your next new session. Tokkie stays on your desktop.'
         : 'Needs the Claude Code bridge — connect it above. Until then nothing is shown in Claude Code.';
       placeNote.style.color = s.hook && s.hook.installed ? '' : 'var(--warn)';
-      itemsTitle.textContent = st.layout === 'pills' ? 'Pills shown under your pet' : st.dockPlace === 'claude' ? 'Shown in the bar' : 'Shown in the Dock';
+      const where = st.layout === 'pills' ? 'Pills' : st.dockPlace === 'claude' ? 'Claude bar' : 'Dock';
       const picks = st.layout === 'pills' ? (st.pills || {}) : (st.dock || {});
-      for (const t of dockToggles) t.sw.setAttribute('aria-checked', String(st.layout === 'pills' ? !!picks[t.k] : picks[t.k] !== false));
+      let on = 0;
+      for (const t of dockToggles) { const v = st.layout === 'pills' ? !!picks[t.k] : picks[t.k] !== false; if (v) on++; t.sw.setAttribute('aria-checked', String(v)); }
+      itemsSummary.textContent = `What the ${where} shows · ${on} of ${dockToggles.length}`;
       if (document.activeElement !== spendIn) spendIn.value = st.spendLimitUsd || '';
       if (document.activeElement !== dayIn) dayIn.value = nextReset(st.resetDay || 1, Date.now());
+      { const d = new Date(nextReset(st.resetDay || 1, Date.now()) + 'T00:00:00'); dayHint.textContent = `${d.toLocaleDateString([], { day: 'numeric', month: 'long' })} · repeats every month`; }
       dayRow.hidden = !(st.spendLimitUsd > 0);
       if (!recording) hotBtn.textContent = prettyKey(st.hotkey, s.platform);
       const hk = s.hotkey, ok = !hk || hk.ok, fresh = hk && hk.firedAt && Date.now() - hk.firedAt < 15000;
