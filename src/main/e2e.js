@@ -77,6 +77,8 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
       const box = await js(`(()=>{const P=window.__tokkie.pet, b=P.base, out={}; for (const m of ['hungry','work']) { P.base=m; P.hide=null; P.clicks=[]; P.angryAt=performance.now(); P.override=null; for(let i=0;i<P.P.pokes;i++) P.poke(1); for(let i=0;i<5;i++) P.stepPlay(performance.now(), i); out[m]=!!P.hide; }
         P.hide=null; P.base='hungry'; [...document.querySelectorAll('#view-pets .bh-try')].pop().click(); for(let i=0;i<5;i++) P.stepPlay(performance.now(), i); out.showMe=!!P.hide;
         P.base='done'; P.stepPlay(performance.now(), 1); out.outWhenDone=!P.hide; P.hide=null; P.base=b; return out;})()`);
+      const hplay = await js(`(()=>{const P=window.__tokkie.pet, b=P.base; P.endAct(); P.hide=null; P.override=null; P.hovered=false; P.base='hungry'; P.nextAct=0; P.stepPlay(performance.now(), 1); const k=P.act&&P.act.k; P.endAct(); P.base=b; return k;})()`);
+      ok('a hungry pet (limit nearly used) still finds things to do when Claude is quiet', !!hplay, String(hplay));
       ok('the box works in any mood (hungry, busy), from poking and from Show me, and it pops out when Claude finishes', box.hungry && box.work && box.showMe && box.outWhenDone, JSON.stringify(box));
       ok('Pets lists everything the pet does and why, and “Show me” plays an activity even while Claude is busy', guide.rows >= 18 && guide.tries === 6 && guide.k === 'butterfly' && /asleep after \d+ min/.test(guide.temper), JSON.stringify(guide));
       await rclick('#stage'); await wait(700); st = await state();

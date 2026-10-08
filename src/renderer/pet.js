@@ -268,7 +268,7 @@ export class Pet {
 
   /** One tick of play: walking to where it wants to be, its activity, the box, the snap. */
   stepPlay(now, t) {
-    const idleish = ['idle', 'bored'].includes(this.base);
+    const idleish = ['idle', 'bored', 'hungry'].includes(this.base);   // hungry (limit nearly used) still plays now and then
     // Claude finished / needs you / is working: drop everything and pay attention
     if (!idleish && this.act && !this.act.forced) this.endAct();
     // the box: it stays hidden whatever the mood (busy, hungry…), and only pops out early when Claude finishes or needs you
@@ -311,7 +311,7 @@ export class Pet {
     const t = this.tick, m = this.mood, still = reduce.matches;
     const blinking = performance.now() < this.blinkUntil;
     const p = { frame: 0, bob: 0, eye: blinking ? 'closed' : 'open', mouth: 'smile', look: this.look };
-    const a = this.act, calm = (a && a.forced) || (!this.override && ['idle', 'bored'].includes(this.base));
+    const a = this.act, calm = (a && a.forced) || (!this.override && ['idle', 'bored', 'hungry'].includes(this.base));
     if (this.bite) { p.eye = 'angry'; p.mouth = this.bite.t % 4 < 2 ? 'open' : 'grit'; p.look = { x: this.bite.side, y: 0 }; return p; }
     if (this.hide) { p.eye = blinking || t % 40 > 30 ? 'closed' : 'wide'; p.mouth = 'flat'; p.look = { x: this.look.x, y: 0 }; return p; }
     if (a && calm) {

@@ -59,8 +59,8 @@ export function petsView(root, api) {
     row('Blinking yellow “?”', 'Claude has gone quiet mid-run: it may be waiting for your approval.'),
     row('Sweating', 'A run might not finish before your “Done by” time.'),
     row('Angry, a grumble now and then', 'Claude is still working past your “Done by” time.'),
-    row('Sad, droopy, an odd shiver', 'Hungry: your usage limit is over 90% used. It cheers up when the limit resets.'),
-    row('Bored, then asleep (Zz)', 'Nothing has happened for a while.'),
+    row('Sad, droopy, an odd shiver', 'Hungry: your usage limit is over 90% used. It still plays now and then, and cheers up when the limit resets.'),
+    row('Bored, then asleep (Zz)', 'No Claude Code or Cowork session has done anything for a while (times below). A chat that is still answering counts as Claude working.'),
     row('White flash, new shape', 'It evolved: it ate enough tokens for its next form.'),
     el('div', { class: 'subhead', text: 'When Claude is idle, it plays (20–40 s at a time)' }),
     ...Object.keys(NAMES).map((k) => row(NAMES[k], {

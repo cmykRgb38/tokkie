@@ -96,8 +96,8 @@ function describe(S) {
   if (active) mood = toFinish < 0 && toFinish > -3 * 3600e3 ? 'angry' : toFinish < 15 * 60e3 && toFinish >= 0 ? 'stress' : 'work';   // overtime = grumpy
   else if (now < doneUntil) mood = 'done';
   else if (bubble && now < bubble.until && (bubble.result.plan.verdict === 'stop' || bubble.result.plan.verdict === 'over')) mood = 'stress';
-  else if (usedPct != null && usedPct >= 90) mood = 'hungry';
-  else if (idleMs > pet.P.sleepMin * 60e3) mood = 'sleep';
+  else if (idleMs > pet.P.sleepMin * 60e3) mood = 'sleep';                 // a long quiet spell: it sleeps, hungry or not
+  else if (usedPct != null && usedPct >= 90) mood = 'hungry';              // (a hungry pet still plays now and then: see pet.js)
   else if (idleMs > pet.P.boredMin * 60e3) mood = 'bored';
 
   let text, dot = 'idle', chipText, chipK = '';
