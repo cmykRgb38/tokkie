@@ -156,13 +156,13 @@ test('the bar’s “This chat” capsule is about the chat it sits in, never an
   const band = (chats: Record<string, unknown>) => JSON.stringify({ updatedAt: 1_900_000_000_000 - 1000, show: true, items: [
     { k: 'usage', label: 'Usage limit', value: '93% · out tmrw 4:50', tone: 'bad' }, { k: 'context', label: 'This chat', value: '50k · cache 59m' }], chats })
   const mount = () => $.ui.mount({ plugin: 'tokkie-bridge', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
-  files[BAND] = band({ [me]: { k: 'context', label: 'This chat', value: '346k · next ≈ $0.76 · cache expired', tone: 'bad', tip: 'Cache expired' } })
+  files[BAND] = band({ [me]: [{ k: 'context', label: 'This chat', value: '346k · next ≈ $0.76 · cache expired', tone: 'bad', tip: 'Cache expired' }] })
   await $.session.start({ source: 'resume', cwd: '/work' } as never)
   let ui = await mount(), drawn = JSON.stringify(await ui.drawn())
   expect(drawn.includes('346k · next ≈ $0.76 · cache expired')).toBe(true)
   expect(drawn.includes('50k · cache 59m')).toBe(false)
   await ui.unmount()
-  files[BAND] = band({ 'aaaaaaaa-0000-0000-0000-000000000000': { k: 'context', label: 'This chat', value: '12k', tip: '' } })
+  files[BAND] = band({ 'aaaaaaaa-0000-0000-0000-000000000000': [{ k: 'context', label: 'This chat', value: '12k', tip: '' }] })
   await $.session.start({ source: 'resume', cwd: '/work' } as never)
   ui = await mount(); drawn = JSON.stringify(await ui.drawn())
   expect(drawn.includes('12k') || drawn.includes('50k · cache 59m')).toBe(false)     // another chat's data: not shown here

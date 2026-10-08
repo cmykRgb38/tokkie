@@ -271,17 +271,15 @@ function checkFit(S) {
 // What each chip is, in plain words — shown when you hover it in the Claude bar.
 const BAR_LABEL = { usage: 'Plan usage', pace: 'Pace', status: 'Claude', next: 'Next prompt', tokens: 'Today', lastPrompt: 'Last prompt', context: 'Conversation size', cache: 'Prompt cache', agents: 'Sub-agents' };
 function barTip(l) {
+  // the card's title already shows "Label: reading"; the body only says what it means
+  const t = (l.title || '').trim();
   switch (l.k) {
-    case 'usage': return `${l.value} used. ${l.title.replace(/^[^—]*— ?/, '') || 'From Claude’s own usage readings.'}`.trim();
-    case 'pace': return `${l.value}. ${l.title}`;
-    case 'status': return `${l.value} — what Claude is doing right now.`;
-    case 'tokens': return `${l.value} used today. ${l.title}.`;
-    case 'lastPrompt': return `${l.value} — exact cost of your last Claude Code prompt.`;
-    case 'context': return `${l.value} tokens re-sent with every message. ${l.title}.`;
-    case 'cache': return `${l.value}. ${l.title}.`;
-    case 'agents': return `${l.value} — sub-agents working right now.`;
-    case 'next': return l.title;
-    default: return l.title || '';
+    case 'usage': return (t.replace(/^[^—]*— ?/, '') || 'From Claude’s own usage readings') + '.';
+    case 'status': return 'What Claude is doing right now.';
+    case 'lastPrompt': return 'Exact cost of your last Claude Code prompt.';
+    case 'agents': return 'Sub-agents working right now.';
+    case 'next': return t;
+    default: return t ? t.replace(/[.\s]*$/, '.') : '';
   }
 }
 
@@ -299,37 +297,41 @@ function barText(l) {
 }
 
 /**
- * The Claude bar says less than the Dock: two capsules and Optimize, one row.
- *  · Plan: usage and pace are one fact ("93% · out tmrw 4:50").
- *  · This chat: size, cache and what the next prompt costs are one fact, and it's about the chat the bar sits in
- *    (the bridge swaps in its own chat from `chats`).
- * Colour only when something is wrong; the detail lives in each capsule's hover card.
+ * The Claude bar shows every item switched on in Settings, each as an icon and a short reading ("93%", "390k");
+ * the full reading and what it means are in the capsule's hover card. The chat items (size, cache, next prompt)
+ * are about the chat the bar sits in: Tokkie sends them for each recent chat and the bridge picks its own.
  */
-const worstTone = (...t) => (t.includes('bad') ? 'bad' : t.includes('warn') ? 'warn' : '');
-function barItems(S, lines) {
-  const by = Object.fromEntries(lines.map((l) => [l.k, l]));
-  const out = [];
-  const u = by.usage, p = by.pace;
-  if (u || p) {
-    const pace = p && /^out /.test(p.value) ? barText(p) : '';
-    const value = [u ? barText(u).split(' · ')[0] : '', pace].filter(Boolean).join(' · ') || barText(p);
-    const nf = S.nextFit;     // only "will it fit" belongs here; the chat's own warning lives on the chat capsule
-    const fit = fitAlert && Date.now() < fitAlert.until ? `${fitAlert.title}: ${fitAlert.sub}.` : nf && nf.status !== 'ok' ? `${nf.status === 'no' ? 'Not enough left for a typical prompt' : 'Running low'}: ${fitWords(nf).line}.` : '';
-    out.push({ k: 'usage', label: u ? `${u.label} limit` : 'Pace', value, tone: worstTone(u && u.tone, p && p.tone, fit ? 'bad' : ''),
-      tip: [fit, u && barTip(u), p && (/^out /.test(p.value) ? `${p.title} (${p.value.replace(/^out /, '')})` : barTip(p))].filter(Boolean).map((t) => t.trim().replace(/[.\s]*$/, '.')).join(' ') });
+const CHAT_KEYS = ['context', 'cache', 'next'];
+function shortValue(l) {
+  const v = barText(l);
+  switch (l.k) {
+    case 'usage': case 'tokens': return v.split(' · ')[0];                       // ≈93% · $185 → ≈93%
+    case 'pace': return /^out /.test(v) ? v.slice(4) : v.replace(/ (fast|under)$/, '');
+    case 'status': return v.split(' ')[0];                                        // Done 1m → Done
+    case 'context': return v.split(' / ')[0];
+    default: return v;
   }
-  const chat = chatCapsule(S.nextRun, S.now, S.settings.dock || {});
-  if (chat) out.push(chat);
-  if (by.agents) out.push({ k: 'agents', label: 'Sub-agents', value: barText(by.agents), tone: '', tip: barTip(by.agents) });
+}
+const barItem = (l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), short: shortValue(l), tone: l.tone, tip: barTip(l) });
+function barItems(S, lines) {
+  const out = [];
+  const fit = fitAlert && Date.now() < fitAlert.until ? `${fitAlert.title}: ${fitAlert.sub}.` : S.nextFit && S.nextFit.status !== 'ok' ? `${S.nextFit.status === 'no' ? 'Not enough left for a typical prompt' : 'Running low'}: ${fitWords(S.nextFit).line}.` : '';
+  if (fit) out.push({ k: 'alert', label: 'Heads-up', value: fit.replace(/\.$/, ''), short: '', tone: 'bad', tip: '' });
+  for (const l of lines) out.push(barItem(l));
   return out;
 }
-function chatCapsule(r, now, on = {}) {
-  if (!r || on.context === false) return null;
-  const adv = chatAdvice(r, now), left = r.expiresAt - now, mins = Math.max(1, Math.ceil(left / 60e3));
-  const cost = r.cost ? ` · next ≈ ${adv ? adv.usd(r.cost.p50) : `$${r.cost.p50.toFixed(2)}`}` : '';
-  const cache = r.cold ? ' · cache expired' : left < 10 * 60e3 ? ` · cache ${mins}m` : '';
-  return { k: 'context', label: 'This chat', value: `${fmtTokens(r.ctx)}${adv ? cost : ''}${cache}`, tone: adv ? (r.cold ? 'bad' : 'warn') : '',
-    tip: adv ? `${adv.title}. ${adv.body}` : `Every message re-sends this chat's ${fmtTokens(r.ctx)} tokens; its cache keeps that cheap for ${mins} more min${mins === 1 ? '' : 's'}.` };
+/** One chat's own items, in the Dock's format (so they read the same everywhere). */
+function chatLines(r, now, on = {}) {
+  if (!r) return [];
+  const out = [], ctx = r.ctx, left = r.expiresAt - now;
+  if (on.next !== false) { const adv = chatAdvice(r, now); if (adv) out.push({ k: 'next', label: 'Next prompt', value: adv.value, tone: adv.tone, title: `${adv.title}. ${adv.body}` }); }
+  if (on.context !== false) out.push({ k: 'context', label: 'Context', value: fmtTokens(ctx), tone: ctx >= 300e3 ? 'bad' : ctx >= 100e3 ? 'warn' : '',
+    title: ctx >= 300e3 ? 'Very long conversation — a fresh one is cheaper and sharper' : ctx >= 100e3 ? 'Getting long — /compact would make each reply cheaper' : 'How much the current conversation sends with every message' });
+  if (on.cache !== false && left > -30 * 60e3) {
+    const v = left > 0 ? (left >= 60e3 ? `${Math.ceil(left / 60e3)}m left` : `${Math.ceil(left / 1000)}s left`) : 'expired';
+    out.push({ k: 'cache', label: 'Cache', value: v, tone: left <= 0 ? 'bad' : left < 5 * 60e3 ? 'warn' : '', title: left > 0 ? 'Reply before this runs out and the conversation is re-read cheaply from cache' : 'The cache expired — the next message re-sends the whole conversation at full price' });
+  }
+  return out;
 }
 
 function bandAlert(S) {
@@ -420,7 +422,7 @@ function render() {
   applyLayout();
   const inClaude = !!lines && place === 'claude';
   const chats = {};
-  if (inClaude) for (const [id, r] of Object.entries(S.chats || {})) { const c = chatCapsule(r, S.now, S.settings.dock || {}); if (c) chats[id] = c; }
+  if (inClaude) for (const [id, r] of Object.entries(S.chats || {})) chats[id] = chatLines(r, S.now, S.settings.dock || {}).map(barItem);
   bridge.ui.band?.({ show: inClaude, items: inClaude ? barItems(S, lines) : [], chats, alert: '' });
   chip.textContent = d.chipText; chip.dataset.k = d.chipK;
   $('#petTraits').textContent = ev.eaten < 1000 ? `${ev.name} · just hatched` : `${ev.name} · ${fmtTokens(ev.eaten)} eaten`;

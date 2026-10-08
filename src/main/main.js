@@ -69,7 +69,7 @@ function snapshot() {
 }
 
 let bandLast = '', bandAt = 0;
-const bandItem = (x) => ({ k: String(x.k || '').slice(0, 16), label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 48), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: String(x.tip || '').slice(0, 480) });
+const bandItem = (x) => ({ k: String(x.k || '').slice(0, 16), label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 48), short: String(x.short == null ? x.value || '' : x.short).slice(0, 20), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: String(x.tip || '').slice(0, 480) });
 function writeBand(b) {
   try {
     const avatar = b && typeof b.avatar === 'string' && /^<svg[^]*<\/svg>$/.test(b.avatar) && b.avatar.length < 20000 && !/<script|on\w+=/i.test(b.avatar) ? b.avatar : '';
@@ -77,7 +77,7 @@ function writeBand(b) {
     const clean = { show: !!(b && b.show), optimizer, alert: b && typeof b.alert === 'string' ? b.alert.slice(0, 120) : '', avatar,
       items: (b && Array.isArray(b.items) ? b.items : []).slice(0, 10).map(bandItem), chats: {} };
     // each recent chat's own capsule, keyed by its session id: the bar in that chat shows it
-    if (b && b.chats && typeof b.chats === 'object') for (const [id, x] of Object.entries(b.chats).slice(0, 12)) if (/^[0-9a-f-]{36}$/i.test(id) && x) clean.chats[id] = bandItem(x);
+    if (b && b.chats && typeof b.chats === 'object') for (const [id, x] of Object.entries(b.chats).slice(0, 12)) if (/^[0-9a-f-]{36}$/i.test(id) && Array.isArray(x)) clean.chats[id] = x.slice(0, 3).map(bandItem);
     const key = JSON.stringify(clean), now = Date.now();
     if (key === bandLast && now - bandAt < 30e3) return;          // rewrite unchanged content only to keep it fresh
     if (!clean.show && !clean.optimizer && bandLast && !JSON.parse(bandLast).show && now - bandAt < 300e3) return;
@@ -150,6 +150,7 @@ function maybeScreenshot() {
   if (process.env.TOKKIE_TOUR_NEXT) setTimeout(() => win.webContents.executeJavaScript(`for (let i = 0; i < ${Number(process.env.TOKKIE_TOUR_NEXT)}; i++) document.querySelector('#tour .btn.primary')?.click()`), 2600);
   if (process.env.TOKKIE_ALERT) setTimeout(() => win.webContents.executeJavaScript(`window.__tokkie.forceAlert(${JSON.stringify(process.env.TOKKIE_ALERT)})`), 1800);
   if (process.env.TOKKIE_SCROLL) setTimeout(() => win.webContents.executeJavaScript(`document.querySelectorAll('.view').forEach((v) => { v.scrollTop = ${Number(process.env.TOKKIE_SCROLL) || 0}; })`), Number(process.env.TOKKIE_SHOT_DELAY || 2200) - 400);
+  if (process.env.TOKKIE_SHOT_JS) setTimeout(() => win.webContents.executeJavaScript(process.env.TOKKIE_SHOT_JS).catch(() => {}), 2600);   // QA: one scripted step before the shot
   if (process.env.TOKKIE_OPTTOAST) setTimeout(() => optToast({ kind: 'ok', title: `Optimized ✓ Paste it with ${isMac ? '⌘V' : 'Ctrl+V'}`, sub: 'Prompt text 7 → 108 tokens · click here to undo', undo: true }), 2400);
   if (process.env.TOKKIE_OPT) setTimeout(() => win.webContents.executeJavaScript(`[...document.querySelectorAll('#view-plan button')].find((b) => b.textContent.trim() === 'Optimize' && !b.closest('.run'))?.click()`), 2600);
   if (process.env.TOKKIE_EST) setTimeout(() => { const t = process.env.TOKKIE_EST; send('estimate', { source: 'hotkey', text: t, result: engine.estimate(t) }); }, 2000);

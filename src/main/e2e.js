@@ -48,7 +48,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
       ok('pet stays in place when the Dock moves above', near(petPos(), pd0), JSON.stringify([pd0, petPos()]));
       await js(`window.tokkie.setSettings({ dockPlace: 'claude' })`); await wait(3500);
       const band = JSON.parse(require('fs').readFileSync(require('path').join(require('../core/paths').tokkieHome(), 'band.json'), 'utf8'));
-      ok('“In Claude Code” hides the Dock here and hands its lines to the bridge', (await js(`document.getElementById('dock').hidden`)) && band.show === true && band.items.length > 0 && band.items.length <= 3 && band.items.every((i) => ['usage', 'context', 'agents'].includes(i.k)), JSON.stringify(band).slice(0, 160));
+      ok('“In Claude Code” hides the Dock here and hands its lines to the bridge', (await js(`document.getElementById('dock').hidden`)) && band.show === true && band.items.length > 0 && band.items[0].k !== undefined && band.items.every((i) => typeof i.short === 'string' && i.short.length <= 20) && !band.items.some((i) => i.k === 'status' && settings.get('dock').status === false), JSON.stringify(band).slice(0, 160));
       await js(`window.tokkie.setSettings({ dockPlace: 'below' })`); await wait(1300);
       const band2 = JSON.parse(require('fs').readFileSync(require('path').join(require('../core/paths').tokkieHome(), 'band.json'), 'utf8'));
       ok('switching back turns the Claude Code bar off', band2.show === false);

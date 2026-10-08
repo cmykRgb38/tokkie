@@ -389,3 +389,9 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .tour-dots i.on { background: var(--accent); }
 .tabs button.tour-hl { color: var(--ink); background: var(--accent-soft); }
 .meter .foot .btn.quiet { padding-left: 0; height: 24px; }
+
+/* a freshly generated pet, previewed in the panel */
+.note.new-pet { display: flex; align-items: center; gap: 14px; }
+.note.new-pet[hidden] { display: none; }
+.note.new-pet .preview-pet { flex: none; image-rendering: pixelated; }
+.note.new-pet .note-text { min-width: 0; }

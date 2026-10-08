@@ -12,7 +12,8 @@ const PERSONALITIES = [['cheerful', 'Cheerful', 'Sunny and affectionate — love
 export function petsView(root, api) {
   const reroll = el('button', { class: 'btn primary', type: 'button', style: 'flex:1' }, icon('dice'), 'Generate another');
   const save = el('button', { class: 'btn', type: 'button', style: 'flex:1' }, icon('save'), el('span', { text: 'Save' }));
-  const note = el('div', { class: 'note', hidden: true });
+  const note = el('div', { class: 'note new-pet', hidden: true });
+  let previewSeed = null;
   const slotsBox = el('div', { class: 'slots' });
   const count = el('p', { class: 'muted' });
   // Evolution card: four forms (locked ones are silhouettes), and how far it is from the next
@@ -166,7 +167,14 @@ export function petsView(root, api) {
       save.lastChild.textContent = isSaved ? 'Saved ✓' : 'Save';
       save.classList.toggle('is-done', isSaved);
       note.hidden = isSaved;
-      if (!isSaved) note.replaceChildren(el('b', { text: spec.name }), saved.length >= MAX ? ' is new — your collection is full, remove one to keep it.' : ' is new and not saved yet. Save to keep it, or generate another.');
+      // a fresh pet is shown right here too, not only on the desktop (where it's easy to miss)
+      if (!isSaved && previewSeed !== active) {
+        previewSeed = active;
+        const cv = el('canvas', { class: 'preview-pet', 'aria-hidden': 'true' }); const pp = new Pet(cv, { scale: 4, spriteOnly: true }); pp.setSeed(active);
+        { const st = S.evolution ? S.evolution.stage : 2; pp.setForm(st, S.evolution ? S.evolution.fat : 0); }
+        note.replaceChildren(cv, el('div', { class: 'note-text' }, el('b', { text: spec.name }), saved.length >= MAX ? ' is new — your collection is full, remove one to keep it.' : ' is new and not saved yet. Save to keep it, or generate another.'));
+      }
+      if (isSaved) previewSeed = null;
       count.textContent = `${saved.length} of ${MAX} saved · generate as many as you like`;
       const hideOwn = !!s.settings.monsters.hideOwn;
       const nodes = hideOwn ? [] : [slot(s.signature, 'You', true)];

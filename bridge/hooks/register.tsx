@@ -94,14 +94,16 @@ async function refreshBand($: Engine) {
     const optimizer = j.optimizer && MODELS.includes(j.optimizer.model) ? { model: j.optimizer.model, mode: j.optimizer.mode === 'shorter' ? 'shorter' : 'clearer' } : undefined
     if (fresh && (j.show === true || optimizer) && Array.isArray(j.items)) {
       const ok = (x: any) => x && typeof x.label === 'string' && typeof x.value === 'string'
-      const item = (x: any): BandItem => ({ k: typeof x.k === 'string' ? x.k.slice(0, 16) : '', label: x.label.slice(0, 24), value: x.value.slice(0, 48), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: typeof x.tip === 'string' ? x.tip.slice(0, 480) : '' })
+      const item = (x: any): BandItem => ({ k: typeof x.k === 'string' ? x.k.slice(0, 16) : '', label: x.label.slice(0, 24), value: x.value.slice(0, 48), short: typeof x.short === 'string' ? x.short.slice(0, 20) : x.value.slice(0, 20), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: typeof x.tip === 'string' ? x.tip.slice(0, 480) : '' })
       let items: BandItem[] = j.items.slice(0, 10).filter(ok).map(item)
-      // "This chat" is about the chat this bar sits in: Tokkie sends one per recent chat; use ours, or none at all
-      // (the newest chat anywhere may be a different one, which made the bar contradict itself).
+      // The chat items (size, cache, next prompt) are about the chat this bar sits in: Tokkie sends them for each
+      // recent chat; use ours, or none at all (the newest chat anywhere may be another one).
+      const CHAT = ['context', 'cache', 'next']
       const sid = await $.session.id()
-      const mine = j.chats && typeof j.chats === 'object' && ok(j.chats[sid]) ? item(j.chats[sid]) : null
-      items = items.flatMap((x) => (x.k === 'context' ? (mine ? [mine] : []) : [x]))
-      if (mine && !items.includes(mine)) items.splice(Math.min(1, items.length), 0, mine)
+      const mine: BandItem[] = j.chats && typeof j.chats === 'object' && Array.isArray(j.chats[sid]) ? j.chats[sid].filter(ok).map(item) : []
+      const at = items.findIndex((x) => CHAT.includes(x.k))
+      items = items.filter((x) => !CHAT.includes(x.k))
+      if (mine.length) items.splice(at >= 0 ? at : items.length, 0, ...mine)
       const avatar = typeof j.avatar === 'string' && j.avatar.startsWith('<svg') && j.avatar.length < 20000 ? j.avatar : undefined
       next = { items: j.show === true ? items : [], showItems: j.show === true, optimizer, alert: j.show === true && typeof j.alert === 'string' && j.alert ? j.alert.slice(0, 120) : undefined, avatar }
     }
@@ -332,10 +334,11 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column">
           {optLine}
-          {/* One row: a capsule per fact, Optimize at the end. Capsules are neutral; only a problem gets colour.
-              The app rounds a Box only through its border, which adds padding: paddingY 0 takes it back. Each
-              capsule has its own hover card, placed above it (absolute: nothing moves under the pointer). */}
+          {/* One row: Optimize first, then a compact capsule per item (icon + short reading); everything else is in
+              each capsule's hover card. Capsules are neutral; only a problem gets colour. The app rounds a Box only
+              through its border, which adds padding: paddingY 0 takes it back. Cards are absolute: nothing moves. */}
           <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={1} rowGap={0}>
+            {optButton}
             {items.map((it, i) => {
               const color = it.tone === 'bad' || it.tone === 'warn' ? TONE[it.tone] : undefined
               const tint = TINT[it.tone === 'bad' ? 'bad' : it.tone === 'warn' ? 'warn' : 'plain']
@@ -343,16 +346,15 @@ export const register: Register = on => {
                 <Box key={`c${i}`} flexDirection="row" flexShrink={0} alignItems="center" columnGap={1} paddingX={1} paddingY={0}
                   borderStyle="round" borderColor={tint[1]} backgroundColor={tint[0]}>
                   <Svg source={icon(k(it.k), tint[2])} alt={it.label} width={14} height={14} />
-                  <Text color={color} wrap="truncate">{it.value}</Text>
+                  {it.short ? <Text color={color} wrap="truncate">{it.short}</Text> : null}
                   <Box position="absolute" bottom={1} {...(i < half || items.length < 3 ? { left: 0 } : { right: 0 })} width={52} display="none" hover={{ display: 'flex' }}
                     flexDirection="column" paddingX={1} paddingY={0} borderStyle="round" borderColor="subtle" backgroundColor="background">
-                    <Text bold color={color} wrap="wrap">{it.label}: {it.value}</Text>
+                    <Text bold color={color} wrap="wrap">{it.label}{it.value ? `: ${it.value}` : ''}</Text>
                     {it.tip ? <Text dimColor wrap="wrap">{it.tip}</Text> : null}
                   </Box>
                 </Box>
               )
             })}
-            {optButton}
           </Box>
         </Box>
       )
