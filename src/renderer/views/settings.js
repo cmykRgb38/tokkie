@@ -1,10 +1,21 @@
 import { el, icon, fmtTokens, fmtDur } from '../util.js';
 import { prettyKey } from './plan.js';
 
-function toggle(label, desc, key, api, S) {
+// Two row shapes, used everywhere in Settings:
+//  · field: label and explanation on top, the control below at full width (choices, inputs)
+//  · switchRow: label (and explanation) with the on/off switch on the right
+function field(label, desc, ...controls) {
+  return el('div', { class: 'field' }, el('div', { class: 't', text: label }), desc ? el('div', { class: 'd', text: desc }) : null, ...controls.filter(Boolean));
+}
+function switchRow(label, desc, sw) {
+  return el('div', { class: 'field inline' }, el('div', { class: 'ftext' }, el('div', { class: 't', text: label }), desc ? el('div', { class: 'd', text: desc }) : null), sw);
+}
+const group = (title, ...rows) => el('section', { class: 'sgroup', 'aria-label': title }, el('h3', { class: 'sh', text: title }), ...rows.filter(Boolean));
+
+function toggle(label, desc, key, api) {
   const sw = el('button', { class: 'switch', type: 'button', role: 'switch', 'aria-label': label, 'aria-checked': 'false' });
   sw.addEventListener('click', () => api.setSettings({ [key]: sw.getAttribute('aria-checked') !== 'true' }));
-  return { sw, row: el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: label }), desc ? el('div', { class: 'd', text: desc }) : null), sw) };
+  return { sw, row: switchRow(label, desc, sw) };
 }
 
 export function settingsView(root, api) {
@@ -28,31 +39,31 @@ export function settingsView(root, api) {
     const sw = el('button', { class: 'switch', type: 'button', role: 'switch', 'aria-label': l, 'aria-checked': 'false' });
     // the same items drive the Dock and the Pills; each layout remembers its own picks
     sw.addEventListener('click', () => { const key = S.settings.layout === 'pills' ? 'pills' : 'dock'; api.setSettings({ [key]: { ...S.settings[key], [k]: sw.getAttribute('aria-checked') !== 'true' } }); });
-    return { k, sw, row: el('div', { class: 'row sub', title: d }, el('div', { class: 't', text: l }), sw) };
+    return { k, sw, row: switchRow(l, d, sw) };
   });
   const place = mkSeg([['below', 'Below'], ['above', 'Above'], ['claude', 'Claude bar']], 'dockPlace');
-  const placeNote = el('div', { class: 'd', style: 'max-width:none;padding:0 0 6px 12px' });
-  const placeRow = el('div', { class: 'row sub' }, el('div', { class: 't', text: 'Position' }), place.node);
-  const itemsTitle = el('div', { class: 'd', text: 'Shown' });
-  const dockBox = el('div', { class: 'dockset' }, placeRow, placeNote, itemsTitle, ...dockToggles.map((t) => t.row));
+  const placeNote = el('div', { class: 'd note-inline' });
+  const placeRow = field('Position', 'Where the Dock sits: under or over your pet, or as a bar above Claude Code’s prompt box.', place.node, placeNote);
+  const itemsTitle = el('div', { class: 'subhead', text: 'Shown' });
+  const dockBox = el('div', { class: 'dockset' }, placeRow, itemsTitle, ...dockToggles.map((t) => t.row));
 
-  const spendIn = el('input', { class: 'input', type: 'number', min: 0, step: 10, 'aria-label': 'Monthly spend limit in dollars', placeholder: 'off' });
+  const spendIn = el('input', { class: 'input', type: 'number', min: 0, step: 10, 'aria-label': 'Monthly spend limit in dollars', placeholder: 'Off' });
   spendIn.addEventListener('change', () => api.setSettings({ spendLimitUsd: Number(spendIn.value) || 0 }));
   // A calendar: pick the date Claude shows under “Resets …”; it repeats on that day every month.
-  const dayIn = el('input', { class: 'input', type: 'date', style: 'width:140px', 'aria-label': 'Next reset date' });
+  const dayIn = el('input', { class: 'input', type: 'date', 'aria-label': 'Next reset date' });
   dayIn.addEventListener('change', () => { const m = /^\d{4}-\d{2}-(\d{2})$/.exec(dayIn.value); if (m) api.setSettings({ resetDay: Number(m[1]) }); });
   const nextReset = (day, now) => {
     const at = (y, mo) => new Date(Date.UTC(y, mo, Math.min(day, new Date(Date.UTC(y, mo + 1, 0)).getUTCDate())));
     const t = new Date(now); let d = at(t.getUTCFullYear(), t.getUTCMonth()); if (d.getTime() <= now) d = at(t.getUTCFullYear(), t.getUTCMonth() + 1);
     return d.toISOString().slice(0, 10);
   };
-  const spendRow = el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Spend limit ($ / month)' }), el('div', { class: 'd', text: 'If Claude’s Usage page shows a $ limit, enter it to see dollars.' })), spendIn);
-  const dayRow = el('div', { class: 'row sub' }, el('div', {}, el('div', { class: 't', text: 'Next reset' }), el('div', { class: 'd', text: 'The date under “Resets …” on Claude’s Usage page. Repeats monthly.' })), dayIn);
+  const spendRow = field('Spend limit ($ per month)', 'If Claude’s Usage page shows a dollar limit, enter it to see dollars.', el('div', { class: 'with-unit' }, el('span', { class: 'unit', text: '$' }), spendIn));
+  const dayRow = field('Next reset', 'The date under “Resets …” on Claude’s Usage page. Repeats monthly.', dayIn);
   const optModel = mkSeg([['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']], 'optimizerModel');
-  const optRow = el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: '✨ Prompt optimizer' }), el('div', { class: 'd', text: 'Haiku: fast & cheapest. Sonnet: reads intent better. Opus: best, slowest, most usage.' })), optModel.node);
+  const optRow = field('Model', 'Haiku is fast and cheapest. Sonnet reads intent better. Opus is best, slowest and uses the most.', optModel.node);
   const optMode = mkSeg([['clearer', '✨ Clearer'], ['shorter', '✂ Shorter']], 'optimizerMode');
-  const optModeRow = el('div', { class: 'row sub' }, el('div', {}, el('div', { class: 't', text: 'Style' }), el('div', { class: 'd', text: 'Clearer adds what Claude would otherwise guess (often a little longer). Shorter keeps the meaning in the fewest tokens.' })), optMode.node);
-  const optBtnT = toggle('Optimize button in Claude Code', 'A ✨ Optimize button above Claude’s prompt box rewrites what you typed (Undo puts it back). Needs the bridge.', 'optimizeButton', api);
+  const optModeRow = field('Style', 'Clearer adds what Claude would otherwise guess, so it’s often a little longer. Shorter keeps the meaning in the fewest tokens.', optMode.node);
+  const optBtnT = toggle('Button in Claude Code', 'A ✨ Optimize button above Claude’s prompt box rewrites what you typed. Undo puts it back.', 'optimizeButton', api);
   const theme = mkSeg([['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], 'theme');
   const size = mkSeg([[5, 'S'], [6, 'M'], [8, 'L']], 'scale', Number);
 
@@ -85,31 +96,36 @@ export function settingsView(root, api) {
 
   const budget = el('input', { class: 'input', type: 'number', min: 0, step: 10000, 'aria-label': '5-hour token budget', placeholder: 'off' });
   budget.addEventListener('change', () => api.setSettings({ fallbackBudget5h: Number(budget.value) || 0 }));
-  const budgetRow = el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: '5-hour token budget' }), el('div', { class: 'd', text: 'Only used until plan limits are connected.' })), budget);
+  const budgetRow = field('5-hour token budget', 'Only used when Tokkie can’t read your plan’s limits.', budget);
 
   const srcBox = el('div', { class: 'src' }); const details = el('details', {}, el('summary', { class: 'muted', style: 'cursor:pointer', text: 'Where I read from' }), srcBox);
   details.addEventListener('toggle', async () => { if (details.open) { const s = await api.sources(); srcBox.replaceChildren(...(s.length ? s.map((x) => el('div', { text: `${x.source === 'cowork' ? 'Cowork' : 'Claude Code'} · ${x.dir}` })) : [el('div', { text: 'No transcript folders found yet.' })])); } });
 
   const ver = el('span', { class: 'muted' });
-  root.append(el('div', { class: 'stack' },
-    el('div', { class: 'set' },
-      el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Claude Code bridge' }), limitStatus), limitBtn),
-      limitMsg, spendRow, dayRow, optRow, optModeRow, optBtnT.row,
-      el('div', { class: 'row' }, el('div', { class: 't', text: 'Layout' }), layout.node), dockBox,
-      el('div', { class: 'row' }, el('div', { class: 't', text: 'Theme' }), theme.node),
-      el('div', { class: 'row' }, el('div', { class: 't', text: 'Pet size' }), size.node),
-      el('div', { class: 'row' }, el('div', {}, el('div', { class: 't', text: 'Estimate shortcut' }), el('div', { class: 'd', text: 'Copy your prompt (⌘C), then press this.' }), hotStatus, hotMsg), hotBtn),
-      alertT.row, bubbleT.row, clip.row, notify.row, login.row, top.row, budgetRow),
+  const bridgeRow = el('div', { class: 'field' },
+    el('div', { class: 'field-head' }, el('div', { class: 'ftext' }, el('div', { class: 't', text: 'Bridge' }), limitStatus), limitBtn), limitMsg);
+  const layoutRow = field('Layout', 'What sits with your pet on the desktop.', layout.node);
+  const hotRow = el('div', { class: 'field' },
+    el('div', { class: 'field-head' }, el('div', { class: 'ftext' }, el('div', { class: 't', text: 'Shortcut' }), el('div', { class: 'd', text: 'Copy a prompt, then press this anywhere to estimate it. Click to record a new one.' })), hotBtn),
+    hotStatus, hotMsg);
+  root.append(el('div', { class: 'settings' },
+    group('Claude Code', bridgeRow, spendRow, dayRow),
+    group('✨ Prompt optimizer', optRow, optModeRow, optBtnT.row),
+    group('On your desktop', layoutRow, dockBox),
+    group('Appearance', field('Theme', null, theme.node), field('Pet size', null, size.node)),
+    group('Estimate', hotRow, clip.row),
+    group('Alerts', alertT.row, bubbleT.row, notify.row),
+    group('System', login.row, top.row, budgetRow),
     details,
-    el('div', { class: 'row' }, ver, el('div', { style: 'display:flex;gap:4px' }, el('button', { class: 'btn sm quiet', type: 'button', text: 'Hide', onclick: () => api.hide() }), el('button', { class: 'btn sm quiet danger', type: 'button', text: 'Quit Tokkie', onclick: () => api.quit() })))));
+    el('div', { class: 'sfoot' }, ver, el('div', { class: 'sfoot-actions' }, el('button', { class: 'btn sm quiet', type: 'button', text: 'Hide', onclick: () => api.hide() }), el('button', { class: 'btn sm quiet danger', type: 'button', text: 'Quit Tokkie', onclick: () => api.quit() })))));
 
   let setup = { installed: false };
   async function refreshSetup() {
     setup = await api.setupStatus();
     limitBtn.textContent = setup.installed ? 'Disconnect' : 'Connect';
     limitStatus.textContent = setup.installed
-      ? (S && S.bridge && S.bridge.seen ? 'Connected · exact Claude Code cost, context and agents' : 'Installed · starts reporting from your next new Claude Code session')
-      : setup.error === 'unparseable' ? 'Claude Code’s settings.json has a JSON error — fix it first' : 'Read-only helper inside Claude Code for exact cost, context & agents';
+      ? (S && S.bridge && S.bridge.seen ? 'Connected. Exact Claude Code cost, context and agents.' : 'Installed. Starts reporting from your next new Claude Code session.')
+      : setup.error === 'unparseable' ? 'Claude Code’s settings.json has a JSON error. Fix it first.' : 'A read-only helper inside Claude Code for exact cost, context and agents. Also powers ✨ Optimize.';
   }
   refreshSetup();
 
@@ -137,7 +153,7 @@ export function settingsView(root, api) {
       hotStatus.style.color = ok ? 'var(--good)' : 'var(--bad)';
       optBtnT.sw.setAttribute('aria-checked', String(st.optimizeButton !== false));
       for (const [t, k] of [[alertT, 'alertBubble'], [bubbleT, 'speechBubble'], [clip, 'clipboardWatch'], [notify, 'notifyDone'], [login, 'launchAtLogin'], [top, 'alwaysOnTop']]) t.sw.setAttribute('aria-checked', String(!!st[k]));
-      bubbleT.sw.disabled = st.alertBubble === false; bubbleT.row.style.opacity = st.alertBubble === false ? '.5' : '';
+      bubbleT.sw.disabled = st.alertBubble === false; bubbleT.row.classList.toggle('is-disabled', st.alertBubble === false);
       login.sw.disabled = !s.packaged; login.row.title = s.packaged ? '' : 'Available in the installed app';
       if (document.activeElement !== budget) budget.value = st.fallbackBudget5h || '';
       budgetRow.hidden = s.limits.connected;

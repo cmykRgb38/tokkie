@@ -28,7 +28,7 @@ function meterNode(title, id, api) {
     root,
     set(m, now) {
       val.textContent = `${m.approx ? '≈ ' : ''}${fmtPct(m.pct)}% used`;
-      fill.style.width = clamp(m.pct, 0, 100) + '%'; bar.dataset.k = kindUsed(m.pct); bar.setAttribute('aria-valuenow', Math.round(m.pct));
+      fill.style.setProperty('--p', String(clamp(m.pct, 0, 100) / 100)); bar.dataset.k = kindUsed(m.pct); bar.setAttribute('aria-valuenow', Math.round(m.pct));
       const age = Math.max(0, (now - m.readAt) / 1000);
       const who = m.source === 'manual' ? 'you said' : 'Claude said';
       const note = m.source === 'estimate' ? 'from your token budget'

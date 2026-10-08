@@ -139,7 +139,7 @@ export function petsView(root, api) {
           ? el('button', { class: 'form', type: 'button', 'aria-pressed': String(current), title: current ? `Showing ${n}` : `Show ${n}`, onclick: pick }, cv, el('span', { text: n }))
           : el('div', { class: 'form locked', title: 'Keep eating to find out…' }, cv, el('span', { text: '???' }));
       }));
-      evoFill.style.width = Math.round(evo.progress * 100) + '%'; evoBar.setAttribute('aria-valuenow', Math.round(evo.progress * 100));
+      evoFill.style.setProperty('--p', String(Math.max(0, Math.min(1, evo.progress)))); evoBar.setAttribute('aria-valuenow', Math.round(evo.progress * 100));
       evoNote.textContent = (shown && shown < evo.stage ? `Showing ${FORM_NAMES[shown - 1]} — tap ${FORM_NAMES[evo.stage - 1]} to go back to the newest form. ` : evo.stage > 1 ? 'Tap a form to show it. ' : '') + (evo.next ? `${fmtTokens(evo.next - evo.eaten)} more tokens to evolve into ${evo.nextName}. Your pet grows rounder as it eats.` : 'Fully evolved! It keeps getting rounder the more you feed it.');
       const spec = M.generate(active);
       const isSaved = saved.includes(active) || active === s.signature;
