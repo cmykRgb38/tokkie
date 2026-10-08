@@ -25,7 +25,7 @@ export const PERSONALITY = {
   shy: { play: [50e3, 100e3], idleEmote: 'love', hover: 'love', hoverMs: 3800, pokes: 5, poke: 'surprised', boredMin: 8, sleepMin: 20 },
 };
 // How each personality reacts to a pointer rushing at it (chance to dodge) and what it likes to do when idle.
-const TEMPER = {
+export const TEMPER = {
   cheerful: { dodge: 0.5, acts: ['ball', 'butterfly', 'console', 'paint', 'read'] },
   playful: { dodge: 0.9, acts: ['ball', 'ball', 'butterfly', 'butterfly', 'console'] },
   sleepy: { dodge: 0.15, acts: ['read', 'read', 'console', 'paint'] },
@@ -156,11 +156,12 @@ export class Pet {
 
   // ---- idle play ---------------------------------------------------------------------------
   /** Start something to do: a game console, a ball, a butterfly, painting, a book. */
-  play(kind) {
+  play(kind, { forced = false } = {}) {
     if (this.sprite || reduce.matches || !this.spec) return false;
     const T = TEMPER[this.persona] || TEMPER.cheerful;
     const k = ACTS.includes(kind) ? kind : T.acts[Math.floor(Math.random() * T.acts.length)];
-    const now = performance.now(), a = { k, t: 0, until: now + 22000 + Math.random() * 18000 };
+    const now = performance.now(), a = { k, t: 0, forced, until: now + (forced ? 12000 : 22000 + Math.random() * 18000) };
+    if (forced) { this.hide = null; this.bite = null; }
     if (k === 'ball') Object.assign(a, { x: OX + M.CX + 6, y: OY + M.GROUND - 6, vx: -0.6, vy: 0 });
     if (k === 'butterfly') Object.assign(a, { x: 2, y: 4, phase: Math.random() * 6 });
     if (k === 'paint') { Object.assign(a, { cells: [], todo: [] }); for (let y = 0; y < 4; y++) for (let x = 0; x < 5; x++) a.todo.push([x, y]); a.todo.sort(() => Math.random() - 0.5); a.color = PAINTS[Math.floor(Math.random() * PAINTS.length)]; this.tx = -5; }
@@ -269,8 +270,8 @@ export class Pet {
   stepPlay(now, t) {
     const idleish = ['idle', 'bored'].includes(this.base);
     // Claude finished / needs you / is working: drop everything and pay attention
-    if (!idleish) { if (this.act) this.endAct(); if (this.hide) this.hide = null; }
-    if (this.act && (this.override || this.hovered || now > this.act.until)) this.endAct();
+    if (!idleish) { if (this.act && !this.act.forced) this.endAct(); if (this.hide) this.hide = null; }
+    if (this.act && ((this.override && !this.act.forced) || this.hovered || now > this.act.until)) this.endAct();
     if (!this.act && !this.hide && idleish && !this.override && !this.hovered && now > this.nextAct && !reduce.matches) this.play();
     if (this.hide) { if (this.hide.shake > 0) this.hide.shake--; if (now > this.hide.until) { this.hide = null; this.emote('surprised', 900); } }
     if (this.bite) { this.bite.t++; if (this.bite.t > 9) this.bite = null; }
@@ -308,7 +309,7 @@ export class Pet {
     const t = this.tick, m = this.mood, still = reduce.matches;
     const blinking = performance.now() < this.blinkUntil;
     const p = { frame: 0, bob: 0, eye: blinking ? 'closed' : 'open', mouth: 'smile', look: this.look };
-    const a = this.act, calm = !this.override && ['idle', 'bored'].includes(this.base);
+    const a = this.act, calm = (a && a.forced) || (!this.override && ['idle', 'bored'].includes(this.base));
     if (this.bite) { p.eye = 'angry'; p.mouth = this.bite.t % 4 < 2 ? 'open' : 'grit'; p.look = { x: this.bite.side, y: 0 }; return p; }
     if (this.hide) { p.eye = blinking || t % 40 > 30 ? 'closed' : 'wide'; p.mouth = 'flat'; p.look = { x: this.look.x, y: 0 }; return p; }
     if (a && calm) {

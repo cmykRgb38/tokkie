@@ -395,3 +395,14 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .note.new-pet[hidden] { display: none; }
 .note.new-pet .preview-pet { flex: none; image-rendering: pixelated; }
 .note.new-pet .note-text { min-width: 0; }
+
+/* Pets → My pet: what the pet does, and why */
+.behaviours { display: grid; gap: 2px; }
+.behaviours .subhead { margin: 10px 0 4px; font-size: 12px; font-weight: 650; color: var(--ink-2); text-transform: none; }
+.behaviours .subhead:first-child { margin-top: 0; }
+.bh-row { display: grid; grid-template-columns: minmax(0, 11em) minmax(0, 1fr); gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.bh-t { font-weight: 600; color: var(--ink); }
+.bh-d { color: var(--ink-2); display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.bh-try { flex: none; height: 24px; }
+.bh-temper { margin-top: 8px; }
+@media (max-width: 420px) { .bh-row { grid-template-columns: minmax(0, 1fr); gap: 2px; } }

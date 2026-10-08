@@ -1,5 +1,5 @@
 import { el, icon, fmtTokens } from '../util.js';
-import { Pet } from '../pet.js';
+import { Pet, TEMPER } from '../pet.js';
 
 const EMOTION_LABELS = [['done', 'Happy'], ['playful', 'Playful'], ['love', 'In love'], ['surprised', 'Surprised'], ['angry', 'Angry'], ['bored', 'Bored'], ['sleep', 'Sleepy']];
 
@@ -47,6 +47,37 @@ export function petsView(root, api) {
   const albumNote = el('p', { class: 'muted', text: 'Generate pets to discover species. Secret ones are 1 in 100 — or need a code.' });
   const bringBack = el('button', { class: 'btn sm quiet', type: 'button', hidden: true });
   // Three small sections instead of one long scroll: your pet · your collection · the album
+  // The pet's whole repertoire in plain words, so people know what to expect (and don't report a mood as a bug).
+  const NAMES = { console: 'Game console', ball: 'Ball', butterfly: 'Butterfly', paint: 'Painting', read: 'Reading' };
+  const row = (title, text, extra) => el('div', { class: 'bh-row' }, el('div', { class: 'bh-t', text: title }), el('div', { class: 'bh-d' }, text, extra || null));
+  const showMe = (k) => el('button', { class: 'btn sm quiet bh-try', type: 'button', text: 'Show me', onclick: () => { if (k === 'hide') api.hideAway(); else api.play(k); } });
+  const temperNote = el('p', { class: 'muted bh-temper' });
+  const behaviours = el('div', { class: 'behaviours' },
+    el('div', { class: 'subhead', text: 'It follows what Claude is doing' }),
+    row('Munching', 'Claude is working. It eats the tokens (crumbs fly), faster when Claude burns faster.'),
+    row('Hops with sparkles', 'Claude just finished. Then a blinking red “!” until you look.'),
+    row('Blinking yellow “?”', 'Claude has gone quiet mid-run: it may be waiting for your approval.'),
+    row('Sweating', 'A run might not finish before your “Done by” time.'),
+    row('Angry, a grumble now and then', 'Claude is still working past your “Done by” time.'),
+    row('Sad, droopy, an odd shiver', 'Hungry: your usage limit is over 90% used. It cheers up when the limit resets.'),
+    row('Bored, then asleep (Zz)', 'Nothing has happened for a while.'),
+    row('White flash, new shape', 'It evolved: it ate enough tokens for its next form.'),
+    el('div', { class: 'subhead', text: 'When Claude is idle, it plays (20–40 s at a time)' }),
+    ...Object.keys(NAMES).map((k) => row(NAMES[k], {
+      console: 'Taps away at a handheld with a flickering screen; hops when it wins.',
+      ball: 'Chases a bouncing ball around and kicks it.',
+      butterfly: 'Watches a butterfly and jumps for it.',
+      paint: 'Paints a little picture at an easel, then celebrates.',
+      read: 'Reads a book with sleepy eyes, turning pages.',
+    }[k], showMe(k))),
+    row('Drops everything', 'The moment Claude finishes or needs you, it stops playing and turns to you.'),
+    el('div', { class: 'subhead', text: 'How it reacts to you' }),
+    row('Pat', 'Rest your pointer on it for a moment: hearts.'),
+    row('Dodge', 'Rush your pointer at it and it may hop out of the way.'),
+    row('Poke', 'Click it: surprised, or a giggle. Poke it a lot and it gets angry and snaps at your pointer.'),
+    row('Hides in a box', 'Keep poking after that and it hides, peeking out until you leave it alone. Clicking the box makes it shake.', showMe('hide')),
+    row('Drag / right-click', 'Drag to move it; right-click opens or closes this panel.'),
+    temperNote);
   const undoNote = el('div', { class: 'note', hidden: true });
   const luckyMsg = el('p', { class: 'muted', hidden: true, style: 'color:var(--good)' });
   const sections = {
@@ -54,7 +85,9 @@ export function petsView(root, api) {
       el('div', { class: 'label', text: 'Personality' }), persona, personaNote,
       el('div', { class: 'divider' }), el('div', { class: 'label', text: 'Preview an emotion' }),
       el('p', { class: 'muted', style: 'margin-top:-8px', text: 'Plays it once so you can see it. It doesn’t change the personality.' }), emotes,
-      el('p', { class: 'muted', text: 'Hover over your pet to pet it. Poke it a few times and see what happens.' })),
+      el('div', { class: 'divider' }), el('div', { class: 'label', text: 'What your pet does, and why' }),
+      el('p', { class: 'muted', style: 'margin-top:-8px', text: 'It isn’t broken: everything it does means something. Here’s the full list.' }),
+      behaviours),
     collection: el('div', { class: 'stack' }, el('div', { class: 'row', style: 'gap:8px' }, reroll, save), luckyMsg, note, undoNote, slotsBox, count, bringBack),
     album: el('div', { class: 'stack' }, albumHead, albumGrid, albumNote, el('div', { class: 'divider' }),
       el('div', { class: 'label', text: 'Secret code' }), el('div', { class: 'row', style: 'gap:8px' }, codeIn, codeBtn), codeMsg),
@@ -137,6 +170,11 @@ export function petsView(root, api) {
   let key = '';
   return {
     update(s) {
+      { const { id, P } = api.personality(), T = TEMPER[id] || TEMPER.cheerful, fav = [...new Set(T.acts)].map((k) => NAMES[k].toLowerCase());
+        const name = id.charAt(0).toUpperCase() + id.slice(1);
+        temperNote.textContent = `As ${name}: bored after ${P.boredMin} min with nothing happening, asleep after ${P.sleepMin} min. Favourite games: ${fav.join(', ')}. ${
+          { cheerful: 'Sometimes dodges a rushing pointer.', playful: 'Usually dodges a rushing pointer and giggles at pokes.', sleepy: 'Rarely bothers to dodge.', grumpy: 'Never dodges, just huffs.', shy: 'Dodges a lot, and hides in its box instead of biting.' }[id] || ''} ${
+          id === 'shy' ? `Hides after ${P.pokes} quick pokes.` : `Snaps after ${P.pokes} quick pokes.`}`; }
       S = s; const { active, saved } = s.settings.monsters;
       const evo = s.evolution || { stage: 2, fat: 0, name: 'Junior', eaten: 0, progress: 0, next: null, nextName: null };
       const pv = s.settings.personality || 'cheerful';
