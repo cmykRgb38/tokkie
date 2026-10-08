@@ -298,6 +298,40 @@ function barText(l) {
   return v;
 }
 
+/**
+ * The Claude bar says less than the Dock: two capsules and Optimize, one row.
+ *  · Plan: usage and pace are one fact ("93% · out tmrw 4:50").
+ *  · This chat: size, cache and what the next prompt costs are one fact, and it's about the chat the bar sits in
+ *    (the bridge swaps in its own chat from `chats`).
+ * Colour only when something is wrong; the detail lives in each capsule's hover card.
+ */
+const worstTone = (...t) => (t.includes('bad') ? 'bad' : t.includes('warn') ? 'warn' : '');
+function barItems(S, lines) {
+  const by = Object.fromEntries(lines.map((l) => [l.k, l]));
+  const out = [];
+  const u = by.usage, p = by.pace;
+  if (u || p) {
+    const pace = p && /^out /.test(p.value) ? barText(p) : '';
+    const value = [u ? barText(u).split(' · ')[0] : '', pace].filter(Boolean).join(' · ') || barText(p);
+    const nf = S.nextFit;     // only "will it fit" belongs here; the chat's own warning lives on the chat capsule
+    const fit = fitAlert && Date.now() < fitAlert.until ? `${fitAlert.title}: ${fitAlert.sub}.` : nf && nf.status !== 'ok' ? `${nf.status === 'no' ? 'Not enough left for a typical prompt' : 'Running low'}: ${fitWords(nf).line}.` : '';
+    out.push({ k: 'usage', label: u ? `${u.label} limit` : 'Pace', value, tone: worstTone(u && u.tone, p && p.tone, fit ? 'bad' : ''),
+      tip: [fit, u && barTip(u), p && (/^out /.test(p.value) ? `${p.title} (${p.value.replace(/^out /, '')})` : barTip(p))].filter(Boolean).map((t) => t.trim().replace(/[.\s]*$/, '.')).join(' ') });
+  }
+  const chat = chatCapsule(S.nextRun, S.now, S.settings.dock || {});
+  if (chat) out.push(chat);
+  if (by.agents) out.push({ k: 'agents', label: 'Sub-agents', value: barText(by.agents), tone: '', tip: barTip(by.agents) });
+  return out;
+}
+function chatCapsule(r, now, on = {}) {
+  if (!r || on.context === false) return null;
+  const adv = chatAdvice(r, now), left = r.expiresAt - now, mins = Math.max(1, Math.ceil(left / 60e3));
+  const cost = r.cost ? ` · next ≈ ${adv ? adv.usd(r.cost.p50) : `$${r.cost.p50.toFixed(2)}`}` : '';
+  const cache = r.cold ? ' · cache expired' : left < 10 * 60e3 ? ` · cache ${mins}m` : '';
+  return { k: 'context', label: 'This chat', value: `${fmtTokens(r.ctx)}${adv ? cost : ''}${cache}`, tone: adv ? (r.cold ? 'bad' : 'warn') : '',
+    tip: adv ? `${adv.title}. ${adv.body}` : `Every message re-sends this chat's ${fmtTokens(r.ctx)} tokens; its cache keeps that cheap for ${mins} more min${mins === 1 ? '' : 's'}.` };
+}
+
 function bandAlert(S) {
   if (fitAlert && Date.now() < fitAlert.until) return `${fitAlert.title} — ${fitAlert.sub}`;
   const nf = S.nextFit;
@@ -385,7 +419,9 @@ function render() {
   if (stripLines) bridge.ui.strip?.({ items: stripLines.map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S) });
   applyLayout();
   const inClaude = !!lines && place === 'claude';
-  bridge.ui.band?.({ show: inClaude, items: (lines || []).map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S) });
+  const chats = {};
+  if (inClaude) for (const [id, r] of Object.entries(S.chats || {})) { const c = chatCapsule(r, S.now, S.settings.dock || {}); if (c) chats[id] = c; }
+  bridge.ui.band?.({ show: inClaude, items: inClaude ? barItems(S, lines) : [], chats, alert: '' });
   chip.textContent = d.chipText; chip.dataset.k = d.chipK;
   $('#petTraits').textContent = ev.eaten < 1000 ? `${ev.name} · just hatched` : `${ev.name} · ${fmtTokens(ev.eaten)} eaten`;
 

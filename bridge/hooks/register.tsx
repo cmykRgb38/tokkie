@@ -93,8 +93,15 @@ async function refreshBand($: Engine) {
     const fresh = Number.isFinite(j.updatedAt) && (await $.clock.now()) - j.updatedAt < BAND_STALE_MS
     const optimizer = j.optimizer && MODELS.includes(j.optimizer.model) ? { model: j.optimizer.model, mode: j.optimizer.mode === 'shorter' ? 'shorter' : 'clearer' } : undefined
     if (fresh && (j.show === true || optimizer) && Array.isArray(j.items)) {
-      const items: BandItem[] = j.items.slice(0, 10).filter((x: any) => x && typeof x.label === 'string' && typeof x.value === 'string')
-        .map((x: any) => ({ k: typeof x.k === 'string' ? x.k.slice(0, 16) : '', label: x.label.slice(0, 24), value: x.value.slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: typeof x.tip === 'string' ? x.tip.slice(0, 200) : '' }))
+      const ok = (x: any) => x && typeof x.label === 'string' && typeof x.value === 'string'
+      const item = (x: any): BandItem => ({ k: typeof x.k === 'string' ? x.k.slice(0, 16) : '', label: x.label.slice(0, 24), value: x.value.slice(0, 48), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: typeof x.tip === 'string' ? x.tip.slice(0, 480) : '' })
+      let items: BandItem[] = j.items.slice(0, 10).filter(ok).map(item)
+      // "This chat" is about the chat this bar sits in: Tokkie sends one per recent chat; use ours, or none at all
+      // (the newest chat anywhere may be a different one, which made the bar contradict itself).
+      const sid = await $.session.id()
+      const mine = j.chats && typeof j.chats === 'object' && ok(j.chats[sid]) ? item(j.chats[sid]) : null
+      items = items.flatMap((x) => (x.k === 'context' ? (mine ? [mine] : []) : [x]))
+      if (mine && !items.includes(mine)) items.splice(Math.min(1, items.length), 0, mine)
       const avatar = typeof j.avatar === 'string' && j.avatar.startsWith('<svg') && j.avatar.length < 20000 ? j.avatar : undefined
       next = { items: j.show === true ? items : [], showItems: j.show === true, optimizer, alert: j.show === true && typeof j.alert === 'string' && j.alert ? j.alert.slice(0, 120) : undefined, avatar }
     }
@@ -224,19 +231,11 @@ async function setOptPref($: Engine, key: 'model' | 'mode', value: string) {
 
 const TONE: Record<string, string> = { good: '#4fc98a', warn: '#e8b931', bad: '#f06a5f' }
 const NEUTRAL = '#6b6b78'
-// Capsule tints per item: [fill, outline, icon]. A warning or alert tone takes over the item's own colour.
+// Capsules: [fill, outline, icon]. Neutral by default; amber or red only when something needs attention.
 const TINT: Record<string, [string, string, string]> = {
-  usage: ['rgba(63,166,107,0.13)', 'rgba(63,166,107,0.32)', '#3a9a62'],
-  pace: ['rgba(140,100,210,0.13)', 'rgba(140,100,210,0.32)', '#8a5fd0'],
-  status: ['rgba(27,161,196,0.11)', 'rgba(27,161,196,0.30)', '#1b9cbe'],
-  next: ['rgba(184,140,40,0.13)', 'rgba(184,140,40,0.34)', '#b8892a'],
-  tokens: ['rgba(47,104,192,0.10)', 'rgba(47,104,192,0.28)', '#2f68c0'],
-  lastPrompt: ['rgba(184,140,40,0.13)', 'rgba(184,140,40,0.34)', '#b8892a'],
-  context: ['rgba(47,104,192,0.10)', 'rgba(47,104,192,0.28)', '#2f68c0'],
-  cache: ['rgba(27,161,196,0.11)', 'rgba(27,161,196,0.30)', '#1b9cbe'],
-  agents: ['rgba(196,80,127,0.11)', 'rgba(196,80,127,0.32)', '#c4507f'],
-  warn: ['rgba(217,150,43,0.14)', 'rgba(217,150,43,0.36)', '#d9962b'],
-  bad: ['rgba(214,69,69,0.12)', 'rgba(214,69,69,0.36)', '#d64545'],
+  plain: ['rgba(128,128,128,0.07)', 'rgba(128,128,128,0.30)', '#8d8d99'],
+  warn: ['rgba(217,150,43,0.12)', 'rgba(217,150,43,0.40)', '#d9962b'],
+  bad: ['rgba(214,69,69,0.11)', 'rgba(214,69,69,0.40)', '#d64545'],
 }
 const ICON_GREY = '#8d8d99'                 // readable on both light and dark
 
@@ -328,32 +327,32 @@ export const register: Register = on => {
       const Svg = table.Svg as any
       // One slim row: icon + value per item, no boxes. Hovering an item lights it and reveals a line saying
       // what it means (the surface's own hover-reveal: no hook runs, nothing leaves the drawing).
-      const items = [...(b.alert ? [{ k: 'alert', label: 'Heads-up', value: '', tone: 'bad', tip: b.alert } as BandItem] : []), ...b.items]
+      const items = b.items
       const half = items.length / 2
       return (
         <Box flexDirection="column">
           {optLine}
-          {optButton}
-          {/* Capsules: tinted and outlined, side by side. The app rounds a Box only through its border, and a border
-              brings padding that makes the band tall: paddingY 0 takes it back. A capsule never shrinks. Each one is a
-              hover scope with its own card, placed above it (absolute: nothing moves under the pointer). */}
+          {/* One row: a capsule per fact, Optimize at the end. Capsules are neutral; only a problem gets colour.
+              The app rounds a Box only through its border, which adds padding: paddingY 0 takes it back. Each
+              capsule has its own hover card, placed above it (absolute: nothing moves under the pointer). */}
           <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={1} rowGap={0}>
             {items.map((it, i) => {
-              const color = it.tone ? TONE[it.tone] : undefined
-              const tint = TINT[it.tone === 'bad' ? 'bad' : it.tone === 'warn' ? 'warn' : it.k] || TINT.status
+              const color = it.tone === 'bad' || it.tone === 'warn' ? TONE[it.tone] : undefined
+              const tint = TINT[it.tone === 'bad' ? 'bad' : it.tone === 'warn' ? 'warn' : 'plain']
               return (
                 <Box key={`c${i}`} flexDirection="row" flexShrink={0} alignItems="center" columnGap={1} paddingX={1} paddingY={0}
                   borderStyle="round" borderColor={tint[1]} backgroundColor={tint[0]}>
                   <Svg source={icon(k(it.k), tint[2])} alt={it.label} width={14} height={14} />
-                  {it.value ? <Text color={color} wrap="truncate">{it.value}</Text> : null}
-                  <Box position="absolute" bottom={1} {...(i < half ? { left: 0 } : { right: 0 })} width={46} display="none" hover={{ display: 'flex' }}
+                  <Text color={color} wrap="truncate">{it.value}</Text>
+                  <Box position="absolute" bottom={1} {...(i < half || items.length < 3 ? { left: 0 } : { right: 0 })} width={52} display="none" hover={{ display: 'flex' }}
                     flexDirection="column" paddingX={1} paddingY={0} borderStyle="round" borderColor="subtle" backgroundColor="background">
-                    <Text bold color={it.k === 'alert' ? TONE.bad : undefined} wrap="wrap">{it.label}{it.value ? `: ${it.value}` : ''}</Text>
+                    <Text bold color={color} wrap="wrap">{it.label}: {it.value}</Text>
                     {it.tip ? <Text dimColor wrap="wrap">{it.tip}</Text> : null}
                   </Box>
                 </Box>
               )
             })}
+            {optButton}
           </Box>
         </Box>
       )

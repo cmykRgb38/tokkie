@@ -196,6 +196,17 @@ class Store {
     return { sessionId: bestId, at: best.at, ttlMs, expiresAt: best.at + ttlMs, ctxTokens: best.ctx, model: best.model, ttlKnown: !!best.ttl };
   }
 
+  /** The same, for one conversation; and the conversations active in the last 6 h, newest first. */
+  cacheFor(id, now = this.now()) {
+    const c = this.cacheBySession.get(id);
+    if (!c || now - c.at > 6 * H) return null;
+    const ttlMs = c.ttl === '5m' ? 5 * 60e3 : 60 * 60e3;
+    return { sessionId: id, at: c.at, ttlMs, expiresAt: c.at + ttlMs, ctxTokens: c.ctx, model: c.model, ttlKnown: !!c.ttl };
+  }
+  recentChats(now = this.now(), n = 8) {
+    return [...this.cacheBySession.entries()].filter(([, c]) => now - c.at <= 6 * H).sort((a, b) => b[1].at - a[1].at).slice(0, n).map(([id]) => id);
+  }
+
   snapshotTotals(now = this.now()) {
     const d = new Date(now); d.setHours(0, 0, 0, 0);
     return {

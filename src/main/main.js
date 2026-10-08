@@ -69,12 +69,15 @@ function snapshot() {
 }
 
 let bandLast = '', bandAt = 0;
+const bandItem = (x) => ({ k: String(x.k || '').slice(0, 16), label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 48), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: String(x.tip || '').slice(0, 480) });
 function writeBand(b) {
   try {
     const avatar = b && typeof b.avatar === 'string' && /^<svg[^]*<\/svg>$/.test(b.avatar) && b.avatar.length < 20000 && !/<script|on\w+=/i.test(b.avatar) ? b.avatar : '';
     const optimizer = settings.get('optimizeButton') && setup.bridgeStatus().installed ? { model: settings.get('optimizerModel') || 'haiku', mode: settings.get('optimizerMode') || 'clearer' } : undefined;
     const clean = { show: !!(b && b.show), optimizer, alert: b && typeof b.alert === 'string' ? b.alert.slice(0, 120) : '', avatar,
-      items: (b && Array.isArray(b.items) ? b.items : []).slice(0, 10).map((x) => ({ k: String(x.k || '').slice(0, 16), label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: String(x.tip || '').slice(0, 200) })) };
+      items: (b && Array.isArray(b.items) ? b.items : []).slice(0, 10).map(bandItem), chats: {} };
+    // each recent chat's own capsule, keyed by its session id: the bar in that chat shows it
+    if (b && b.chats && typeof b.chats === 'object') for (const [id, x] of Object.entries(b.chats).slice(0, 12)) if (/^[0-9a-f-]{36}$/i.test(id) && x) clean.chats[id] = bandItem(x);
     const key = JSON.stringify(clean), now = Date.now();
     if (key === bandLast && now - bandAt < 30e3) return;          // rewrite unchanged content only to keep it fresh
     if (!clean.show && !clean.optimizer && bandLast && !JSON.parse(bandLast).show && now - bandAt < 300e3) return;

@@ -268,11 +268,19 @@ class Engine extends EventEmitter {
     const typical = recent.length >= 3 ? { p50: recent[Math.floor(recent.length / 2)], p75: recent[Math.floor(recent.length * 0.75)] } : null;
     const nextFit = typical ? this._fit(typical, meters, now) : null;
     // A typical prompt in the chat you were just in: what that chat's size (and a cold cache) adds — for the Dock, bar and strip.
-    let nextRun = null;
+    // ...and the same for each chat active lately, so the Claude bar in a chat shows that chat, not the newest one.
+    let nextRun = null; const chats = {};
     if (cache && cache.ctxTokens > 0) {
       const chars = this.store.samples.slice(-40).map((x) => x.chars).sort((a, b) => a - b);
-      const run = this._chatRun(predict(this.store.samples, '', chars.length ? chars[Math.floor(chars.length / 2)] : 200), now);
-      if (run) { const rate = this._usdRate(); if (rate) this._price(run, rate); nextRun = run; }
+      const typicalPred = predict(this.store.samples, '', chars.length ? chars[Math.floor(chars.length / 2)] : 200);
+      const rate = this._usdRate();
+      for (const id of this.store.recentChats(now)) {
+        const run = this._chatRun(typicalPred, now, this.store.cacheFor(id, now));
+        if (!run) continue;
+        if (rate) this._price(run, rate);
+        chats[id] = run;
+        if (id === cache.sessionId) nextRun = run;
+      }
     }
     const turns = this.bridge.allTurns();
     const lastPrompt = turns.length ? turns[turns.length - 1] : null;
@@ -284,7 +292,7 @@ class Engine extends EventEmitter {
       spark: t.spark,
       limits: lim, fallback, block: t.block,
       meters, desktopSeen: !!this.desktop, manualCount: (this.settings.get('manualReadings') || []).length, evolution: evolutionFor(this.eaten()),
-      nextFit, nextRun, cache, context: ctx, agents: fresh ? fresh.agentsRunning : 0, lastPrompt,
+      nextFit, nextRun, chats, cache, context: ctx, agents: fresh ? fresh.agentsRunning : 0, lastPrompt,
       bridge: { seen: !!br, live: !!fresh, since: this.ledger.state.bridgeSince || 0, todayUsd: this.ledger.since(startOfDay(now)) },
       runs: this.recentRuns(8, turns), k5: (this.settings.get('calib').five || {}).k || null,
       samples: this.store.samples.length,
@@ -381,8 +389,7 @@ class Engine extends EventEmitter {
    * run re-reads the whole conversation (measured: cache reads = steps × chat size), and once its cache has expired the
    * first step writes the whole chat again at full price. Compared with the same prompt in a fresh chat.
    */
-  _chatRun(pred, now = this.now()) {
-    const c = this.store.cacheView(now);
+  _chatRun(pred, now = this.now(), c = this.store.cacheView(now)) {
     if (!c || !(c.ctxTokens > 0)) return null;
     const ctx = c.ctxTokens, cold = now > c.expiresAt;
     const q = (f) => ({ p25: f('p25'), p50: f('p50'), p75: f('p75') });
