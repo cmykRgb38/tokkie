@@ -34,5 +34,6 @@ contextBridge.exposeInMainWorld('tokkie', {
     history: () => ipcRenderer.invoke('runs:history'),
     redeem: (code) => ipcRenderer.invoke('pets:redeem', code),
     optimize: (text) => ipcRenderer.invoke('prompt:optimize', text),
+    openClaude: () => ipcRenderer.invoke('ui:openClaude'),
   },
 });

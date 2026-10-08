@@ -1,5 +1,5 @@
 import { el, icon, fmtTokens, fmtDur, fmtRange, fmtTime, clamp, parseTime, labelForHHMM } from '../util.js';
-import { runCards } from './runs.js';
+import { runCards, runGuess, askInChat, fmtUsdRange } from './runs.js';
 
 export { accuracy } from './runs.js';
 
@@ -33,6 +33,7 @@ export function planView(root, api) {
     optBox.hidden = false; optBox.replaceChildren(el('p', { class: 'muted', text: 'Asking Claude for a clearer version…' }));
     let r;
     try { r = await api.optimize(text); } catch { r = { ok: false, error: 'Something went wrong.' }; } finally { optBtn.disabled = !ta.value.trim(); optLabel.textContent = 'Optimize'; }
+    if (r && r.chat) { optBox.replaceChildren(askInChat(api, r, flash)); return; }
     if (!r || !r.ok) { optBox.replaceChildren(el('p', { class: 'muted', style: 'color:var(--bad)', text: (r && r.error) || 'Couldn’t optimize.' })); return; }
     optBox.replaceChildren(...[
       el('div', { class: 'row' }, el('span', { class: 'label with-ic' }, icon('sparkle'), `Prompt text ${r.before.promptTokens} → ${r.after.promptTokens} tokens · ${r.model[0].toUpperCase() + r.model.slice(1)}`),
@@ -45,6 +46,7 @@ export function planView(root, api) {
         el('button', { class: 'btn sm', type: 'button', text: 'Use it here', title: 'Put it in the box above and estimate it', onclick: () => { ta.value = r.optimized; ta.dispatchEvent(new Event('input', { bubbles: true })); optBox.hidden = true; } })),
       el('p', { class: 'muted', text: 'That counts only the words you type. The run itself uses far more (Claude reading files, thinking, writing), and a clearer prompt saves there by cutting wrong turns, so it may be a little longer. Send it, then compare in History.' }),
     ].filter(Boolean));
+    const g = await runGuess(api, r.optimized); if (g && !optBox.hidden) optBox.append(g);
   });
 
   const ta = el('textarea', { class: 'input', rows: 2, placeholder: 'Paste your prompt here…', 'aria-label': 'Prompt to estimate', spellcheck: 'false' });
@@ -127,6 +129,7 @@ export function planView(root, api) {
       el('div', { class: 'kv' },
         el('div', { class: 'row' }, el('span', { text: 'Run time' }), el('span', { text: fmtRange(d.p25, d.p75) })),
         el('div', { class: 'row' }, el('span', { text: 'Tokens it will use' }), el('span', { text: `≈ ${fmtTokens(r.headline.p25)}–${fmtTokens(r.headline.p75)}` })),
+        r.cost ? el('div', { class: 'row' }, el('span', { text: 'Cost at API prices' }), el('span', { text: `≈ ${fmtUsdRange(r.cost)}`, title: `From the $ per token of your last ${r.cost.n} runs (Claude Code’s own figures). On a Pro or Max plan this comes out of your usage limit, not your wallet.` })) : null,
         f ? el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: `≈ ${need} · ${left} left`, title: `${f.label}: this prompt’s likely share vs what’s left`, style: f.status === 'no' ? 'color:var(--bad)' : f.status === 'risky' ? 'color:var(--warn)' : '' }))
           : el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: share ? `≈ ${shareTxt}` : 'connect limits for %', style: share ? '' : 'font-weight:500;color:var(--ink-3)' }))),
       el('p', { class: 'muted', text: conf }));

@@ -250,15 +250,15 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard }) 
       await js(`(()=>{const t=document.querySelector('#view-plan textarea');t.value='fix the login thing pls';t.dispatchEvent(new Event('input',{bubbles:true}));})()`); await wait(400);
       await js(`[...document.querySelectorAll('#view-plan button')].find(b=>b.textContent.trim()==='Optimize' && !b.closest('.run')).click()`); await wait(bridgeOn ? 2500 : 700);
       const opt = await js(`(()=>{const o=[...document.querySelectorAll('#view-plan .opt')].find(x=>!x.closest('.run'));return {hidden:o.hidden,text:o.textContent.slice(0,400)}})()`);
-      const okText = (o) => !o.hidden && (bridgeOn ? /src\/auth\.ts/.test(o.text) && /tokens/.test(o.text) && !/null/.test(o.text) : /bridge/i.test(o.text));
-      ok('✨ Optimize in the Estimate box shows a clearer version (or explains it needs the bridge)', okText(opt), JSON.stringify(opt).slice(0, 300));
+      const okText = (o) => !o.hidden && (bridgeOn ? /src\/auth\.ts/.test(o.text) && /tokens/.test(o.text) && !/null/.test(o.text) : /Copy request/.test(o.text) && /Open Claude/.test(o.text));
+      ok('✨ Optimize in the Estimate box shows a clearer version (or, without Claude Code, a request to paste into Chat)', okText(opt), JSON.stringify(opt).slice(0, 300));
       // old prompt: a past run's card
       const hasRun = await js(`!!document.querySelector('#view-plan .runlist .run')`);
       if (hasRun) {
         await js(`(()=>{const r=document.querySelector('#view-plan .runlist .run');if(r.getAttribute('aria-expanded')!=='true')r.click();})()`); await wait(900);
         await js(`[...document.querySelectorAll('#view-plan .runlist .run .ractions button')].find(b=>b.textContent.includes('Optimize')).click()`); await wait(bridgeOn ? 2500 : 700);
         const opt2 = await js(`(()=>{const o=document.querySelector('#view-plan .runlist .run .opt');return {hidden:o.hidden,text:o.textContent.slice(0,400)}})()`);
-        ok('✨ Optimize on a past run shows a better version (or explains it needs the bridge)', okText(opt2), JSON.stringify(opt2).slice(0, 300));
+        ok('✨ Optimize on a past run shows a better version (or, without Claude Code, a request to paste into Chat)', okText(opt2), JSON.stringify(opt2).slice(0, 300));
       }
       clearInterval(fakeBridge);
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(300);

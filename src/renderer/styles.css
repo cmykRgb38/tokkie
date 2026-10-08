@@ -311,6 +311,8 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .opt .kv .row b { color: var(--ink); }
 .optlist { margin: 0; padding-left: 18px; font-size: 12px; color: var(--ink-2); display: grid; gap: 2px; }
 .optq { font-size: 12px; color: var(--warn); }
+.optchat { display: grid; gap: 4px; font-size: 13px; }
+.optchat p { margin: 0; }
 
 /* Resize grip: bottom-right of the panel (top-right when the panel opens above the pet) */
 .grip { position: absolute; right: 6px; bottom: 6px; width: 16px; height: 16px; cursor: nwse-resize; z-index: 5; border-radius: 0 0 var(--r-lg) 0;

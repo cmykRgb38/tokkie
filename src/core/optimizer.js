@@ -36,7 +36,7 @@ async function optimize(home, prompt, model = 'haiku', { claimMs = CLAIM_MS, ans
   try {
     const t0 = Date.now();
     while (!exists(files.claim) && !exists(files.res)) {
-      if (Date.now() - t0 > claimMs) return { ok: false, error: 'No Claude Code session picked it up. Open Claude Code (the desktop Code tab or a terminal) with the Tokkie bridge connected, then try again.' };
+      if (Date.now() - t0 > claimMs) return { ok: false, unclaimed: true, error: 'No Claude Code session picked it up. Open Claude Code (the desktop Code tab or a terminal) with the Tokkie bridge connected, then try again.' };
       await sleep(250);
     }
     while (!exists(files.res)) {
@@ -51,6 +51,17 @@ async function optimize(home, prompt, model = 'haiku', { claimMs = CLAIM_MS, ans
   } finally { cleanup(); }
 }
 
+/**
+ * For people without Claude Code (Chat / Cowork only): the same request as text to paste into Claude yourself.
+ * Plain words, no JSON, so the answer reads naturally in a chat.
+ */
+function chatRequest(prompt, mode = 'clearer') {
+  const how = mode === 'shorter'
+    ? 'Shorten it: say exactly the same thing in as few words as possible. Keep every requirement, name, number and constraint, and my language. Add nothing new.'
+    : 'Make it clearer so you waste fewer steps and get it right first time: state the goal and what "done" looks like, name the specific things I mentioned (never invent any), state limits on scope, and drop filler. Keep my language and tone, and keep it as short as it can be while clear. No titles or preambles. If something essential is missing, put a short [placeholder] and ask me about it.';
+  return `Please rewrite my prompt below before I send it. Don't do the task yet.\n${how}\nReply with the rewritten prompt first, then up to 3 short bullets on what you changed.\n\n--- my prompt ---\n${String(prompt).slice(0, 20000)}`;
+}
+
 /** Old request/claim/response files (e.g. Tokkie quit mid-request) are cleared on start. */
 function sweep(home, now = Date.now()) {
   for (const d of ['requests', 'claims', 'responses']) {
@@ -59,4 +70,4 @@ function sweep(home, now = Date.now()) {
   }
 }
 
-module.exports = { optimize, parseReply, sweep };
+module.exports = { chatRequest, optimize, parseReply, sweep };

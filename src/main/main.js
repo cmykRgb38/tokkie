@@ -147,6 +147,7 @@ function maybeScreenshot() {
   if (process.env.TOKKIE_TOUR_NEXT) setTimeout(() => win.webContents.executeJavaScript(`for (let i = 0; i < ${Number(process.env.TOKKIE_TOUR_NEXT)}; i++) document.querySelector('#tour .btn.primary')?.click()`), 2600);
   if (process.env.TOKKIE_ALERT) setTimeout(() => win.webContents.executeJavaScript(`window.__tokkie.forceAlert(${JSON.stringify(process.env.TOKKIE_ALERT)})`), 1800);
   if (process.env.TOKKIE_SCROLL) setTimeout(() => win.webContents.executeJavaScript(`document.querySelectorAll('.view').forEach((v) => { v.scrollTop = ${Number(process.env.TOKKIE_SCROLL) || 0}; })`), Number(process.env.TOKKIE_SHOT_DELAY || 2200) - 400);
+  if (process.env.TOKKIE_OPT) setTimeout(() => win.webContents.executeJavaScript(`[...document.querySelectorAll('#view-plan button')].find((b) => b.textContent.trim() === 'Optimize' && !b.closest('.run'))?.click()`), 2600);
   if (process.env.TOKKIE_EST) setTimeout(() => { const t = process.env.TOKKIE_EST; send('estimate', { source: 'hotkey', text: t, result: engine.estimate(t) }); }, 2000);
   setTimeout(async () => {
     const img = await win.webContents.capturePage();
@@ -322,18 +323,22 @@ function setupIpc() {
     if (!UUID.test(String(id))) return { ok: false };
     try { await shell.openExternal(`claude://resume?session=${id}`); return { ok: true }; } catch { return { ok: false }; }
   });
+  ipcMain.handle('ui:openClaude', async () => { try { await shell.openExternal('claude://'); return { ok: true }; } catch { return { ok: false }; } });
   ipcMain.handle('runs:history', () => engine.history());
   // ✨ Optimize: Claude rewrites the prompt (through the bridge, on the user's own login); we compare both estimates.
   let optimizing = false;
   ipcMain.handle('prompt:optimize', async (_e, text) => {
     text = String(text || '').slice(0, 20000);
     if (!text.trim()) return { ok: false, error: 'Paste a prompt first.' };
-    if (!setup.bridgeStatus().installed) return { ok: false, error: 'Optimize uses the Claude Code bridge. Connect it in Settings first.' };
+    const opt = require('../core/optimizer'), mode = settings.get('optimizerMode');
+    // No Claude Code here (Chat / Cowork users): hand back the request to paste into Claude instead.
+    const viaChat = (why) => ({ ok: false, error: why, chat: opt.chatRequest(text, mode) });
+    if (!setup.bridgeStatus().installed) return viaChat('Automatic Optimize needs Claude Code. You can still ask Claude in Chat:');
     if (optimizing) return { ok: false, error: 'Already optimizing one — hang on.' };
     optimizing = true;
     try {
-      const r = await require('../core/optimizer').optimize(require('../core/paths').tokkieHome(), text, settings.get('optimizerModel'), { mode: settings.get('optimizerMode') });
-      if (!r.ok) return r;
+      const r = await opt.optimize(require('../core/paths').tokkieHome(), text, settings.get('optimizerModel'), { mode });
+      if (!r.ok) return r.unclaimed ? viaChat('No Claude Code session is open to do it automatically. Ask Claude in Chat instead:') : r;
       const { estimateTokens } = require('../core/tokens');
       return { ...r, before: { promptTokens: estimateTokens(text) }, after: { promptTokens: estimateTokens(r.optimized) } };
     } finally { optimizing = false; }

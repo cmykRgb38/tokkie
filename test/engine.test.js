@@ -162,3 +162,15 @@ test('history groups every remembered run by day, newest first, and survives a r
   assert.equal(eng2.history().days.length, 2);
   eng2.stop(); fs.rmSync(dir, { recursive: true });
 });
+
+test('whole-run cost: estimates $ from your own past runs, only once there are 3 with a known cost', async () => {
+  const { dir, eng } = rig();
+  await eng.start();
+  assert.equal(eng.estimate('fix the bug').cost, null);
+  const now = Date.now();
+  for (let i = 0; i < 4; i++) eng.store.samples.push({ start: now - (i + 1) * 3600e3, chars: 200, duration: 300, headline: 50_000, tokens: 50_000, usd: 3 });
+  const e = eng.estimate('fix the bug');
+  assert.ok(e.cost && e.cost.n === 4);
+  assert.ok(Math.abs(e.cost.p25 - e.headline.p25 * 0.00006) < 1e-9 && e.cost.p75 >= e.cost.p25);
+  eng.stop(); fs.rmSync(dir, { recursive: true });
+});

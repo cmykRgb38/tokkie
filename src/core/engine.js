@@ -367,7 +367,11 @@ class Engine extends EventEmitter {
     const k = (this.settings.get('calib').five || {}).k;
     const share = k ? { lo: (pred.tokens.p25 / k) * 100, mid: (pred.tokens.p50 / k) * 100, hi: (pred.tokens.p75 / k) * 100 } : null;
     const fit = this._fit(pred.tokens, this.snapshot(now).meters, now);
-    return { chars, promptTokens: estimateTokens(text), duration: pred.duration, tokens: pred.tokens, headline: pred.headline, share, fit, confidence: pred.confidence, n: pred.n, method: pred.method, plan, finishBy, now };
+    // What the whole run would cost at API prices: your own past runs' $ per token (Claude Code's figures), ≥3 runs.
+    const rates = this.store.samples.slice(-80).filter((x) => Number.isFinite(x.usd) && x.usd > 0 && x.headline > 0).map((x) => x.usd / x.headline).sort((a, b) => a - b);
+    const rate = rates.length >= 3 ? rates[Math.floor(rates.length / 2)] : null;
+    const cost = rate ? { p25: pred.headline.p25 * rate, p75: pred.headline.p75 * rate, n: rates.length } : null;
+    return { chars, promptTokens: estimateTokens(text), duration: pred.duration, tokens: pred.tokens, headline: pred.headline, share, fit, cost, confidence: pred.confidence, n: pred.n, method: pred.method, plan, finishBy, now };
   }
 }
 

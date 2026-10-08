@@ -33,6 +33,13 @@ test('round trip through the request/response files, cleaned up afterwards', asy
 test('says so plainly when no Claude Code session picks it up', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tokkie-opt-'));
   const r = await optimize(home, 'hello', 'haiku', { claimMs: 300 });
-  assert.equal(r.ok, false); assert.match(r.error, /Claude Code/);
+  assert.equal(r.ok, false); assert.equal(r.unclaimed, true); assert.match(r.error, /Claude Code/);
   assert.deepEqual(fs.readdirSync(path.join(home, 'requests')), []);
+});
+
+test('Chat / Cowork users get the same request as plain text to paste into Claude', () => {
+  const { chatRequest } = require('../src/core/optimizer');
+  const c = chatRequest('fix the login thing pls');
+  assert.match(c, /Don't do the task yet/); assert.match(c, /clearer/); assert.ok(c.endsWith('fix the login thing pls'));
+  assert.match(chatRequest('x', 'shorter'), /Shorten it/);
 });
