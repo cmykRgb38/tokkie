@@ -188,18 +188,19 @@ async function optimizeDraft($: Engine, model: string, mode: string) {
   const cur = await read($, opt)
   if (cur.busy) return
   const { text } = await $.prompt.read()
-  if (!text.trim()) { await update($, opt, () => ({ busy: false, error: 'Type a prompt first, then Optimize.' })); return }
+  if (!text.trim()) { const at = await $.clock.now(); await update($, opt, (o) => ({ busy: false, model: o.model, mode: o.mode, at, error: 'Type a prompt first, then Optimize.' })); return }
   await update($, opt, (o) => ({ busy: true, model: o.model, mode: o.mode }))
+  const errAt = async (error: string) => { const at = await $.clock.now(); await update($, opt, (o) => ({ busy: false, model: o.model, mode: o.mode, at, error })) }
   try {
     const r = await $.model.complete({ model, system: systemFor(mode), prompt: `<prompt>\n${text.slice(0, 20000)}\n</prompt>`, maxTokens: 3000, effort: 'low' } as any)
     const parsed = r.isAnswered ? parseOptimized(r.text) : null
-    if (!parsed) { await update($, opt, () => ({ busy: false, error: r.isAnswered ? 'Claude’s answer wasn’t usable — try again.' : 'Claude couldn’t answer — try again.' })); return }
+    if (!parsed) { await errAt(r.isAnswered ? 'Claude’s answer wasn’t usable — try again.' : 'Claude couldn’t answer — try again.'); return }
     // the person may have kept typing while Claude worked: only replace what we optimized
     const now = (await $.prompt.read()).text
-    if (now !== text) { await update($, opt, () => ({ busy: false, error: 'You edited the prompt while it was optimizing — press Optimize again.' })); return }
+    if (now !== text) { await errAt('You edited the prompt while it was optimizing — press Optimize again.'); return }
     await $.prompt.fill({ text: parsed.optimized, mode: 'replace' })
     await update($, opt, (o) => ({ busy: false, model: o.model, mode: o.mode, original: text, optimized: parsed.optimized, before: roughTokens(text), after: roughTokens(parsed.optimized), changes: parsed.changes, questions: parsed.questions }))
-  } catch { await update($, opt, () => ({ busy: false, error: 'Something went wrong — try again.' })) }
+  } catch { await errAt('Something went wrong — try again.') }
 }
 async function undoOptimize($: Engine) {
   const cur = await read($, opt)
@@ -213,7 +214,7 @@ async function setOptPrefs($: Engine, mode: string, model: string) {
 }
 /** A model or mode picked on the bar: used at once, and handed to Tokkie so its Settings match. */
 async function setOptPref($: Engine, key: 'model' | 'mode', value: string) {
-  await update($, opt, (o) => ({ ...o, [key]: value, error: undefined }))
+  await update($, opt, (o) => ({ ...o, [key]: value, error: undefined }))   // picking stays open: Go is next
   try {
     const dir = await tokkieHome($)
     const o = await read($, opt)
@@ -249,6 +250,7 @@ export const register: Register = on => {
     const result = await next(e)
     try { await refreshBand($); $.clock.every(3000, () => refreshBand($).catch(() => {})) } catch { /* ignore */ }
     try { $.clock.every(1000, () => serveRequests($).catch(() => {})) } catch { /* ignore */ }
+    try { $.clock.every(1000, async () => { const o = await read($, opt); if (o.error && o.at && (await $.clock.now()) - o.at > 8000) await update($, opt, (x) => ({ ...x, error: undefined, at: undefined })) }) } catch { /* ignore */ }
     try {
       const usage = await $.session.usage()
       costBase = usage.cost?.usd ?? null
@@ -288,12 +290,13 @@ export const register: Register = on => {
     const model = o.model && MODELS.includes(o.model) ? o.model : b.optimizer ? b.optimizer.model : 'haiku'
     const mode = o.mode === 'shorter' || o.mode === 'clearer' ? o.mode : b.optimizer ? b.optimizer.mode : 'clearer'
     const { Select } = table
-    const label = o.busy ? (mode === 'shorter' ? '✂ Shortening…' : '✨ Optimizing…') : mode === 'shorter' ? '✂ Shorten' : '✨ Optimize'
+    const label = o.busy ? (mode === 'shorter' ? '✂ Shortening…' : '✨ Optimizing…') : o.picking ? '✨ Optimize ▴' : '✨ Optimize'
+    // One button keeps the bar to one row: press it to pick style × model, then Go (the pick is remembered).
     const optButton = b.optimizer && Button ? (
-      <Box key="optbox" flexDirection="row" columnGap={1} alignItems="center">
-        <Button key="opt" label={label} onPress={() => { if (!o.busy) void optimizeDraft($, model, mode) }} />
-        {/* one compact picker for style × model ("Clearer · Haiku"), so the bar stays one row */}
-        {Select ? <Select key="optcfg" options={OPT_CHOICES} value={`${mode}:${model}`} onSelect={(v: string) => { const [md, ml] = v.split(':'); void setOptPrefs($, md, ml) }} /> : null}
+      <Box key="optbox" flexDirection="row" flexShrink={0} columnGap={1} alignItems="center">
+        <Button key="opt" label={label} onPress={() => { if (!o.busy) void update($, opt, (x) => ({ ...x, picking: !x.picking, error: undefined })) }} />
+        {o.picking && !o.busy && Select ? <Select key="optcfg" options={OPT_CHOICES} value={`${mode}:${model}`} onSelect={(v: string) => { const [md, ml] = v.split(':'); void setOptPrefs($, md, ml) }} /> : null}
+        {o.picking && !o.busy ? <Button key="go" label="Go" onPress={() => { void update($, opt, (x) => ({ ...x, picking: false })).then(() => optimizeDraft($, model, mode)) }} /> : null}
       </Box>
     ) : null
     const undoButton = o.original && Button ? <Button key="undo" label="Undo" onPress={() => { void undoOptimize($) }} /> : null
@@ -322,10 +325,18 @@ export const register: Register = on => {
               <Text dimColor wrap="wrap"><Text bold>{it.label}</Text>{it.tip ? ` — ${it.tip}` : ''}</Text>
             </Box>
           ))}
-          {b.alert ? <Text color={TONE.bad} wrap="truncate">⚠ {b.alert}</Text> : null}
+          {b.alert ? (
+            <Box key="talert" display="none" hover={{ scope: 'tokkie-alert', display: 'flex' }}>
+              <Text color={TONE.bad} wrap="wrap"><Text bold>Heads-up</Text> — {b.alert}</Text>
+            </Box>
+          ) : null}
           {optLine}
           <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={1} rowGap={0}>
-            {optButton}
+            {b.alert ? (
+              <Box key="calert" flexDirection="row" flexShrink={0} alignItems="center" paddingX={1} hover={{ scope: 'tokkie-alert', backgroundColor: HL }}>
+                <Svg source={icon('alert', TONE.bad)} alt="Heads-up" width={12} height={12} />
+              </Box>
+            ) : null}
             {b.items.map((it, i) => {
               const color = it.tone ? TONE[it.tone] : undefined
               return (
@@ -335,6 +346,7 @@ export const register: Register = on => {
                 </Box>
               )
             })}
+            {optButton}
           </Box>
         </Box>
       )

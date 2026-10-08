@@ -290,9 +290,15 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
       await js(`document.getElementById('stage').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`); await wait(700);
       const pr0 = petPos(), wb0 = win.getBounds();
       // the grip sits on the far side from the pet: drag away from the pet to grow
-      await js(`(()=>{const up=document.getElementById('app').classList.contains('above');const g=document.getElementById('grip');const o=(x,y)=>({bubbles:true,pointerId:7,button:0,screenX:x,screenY:y});const ty=up?380:620;g.dispatchEvent(new PointerEvent('pointerdown',o(500,500)));g.dispatchEvent(new PointerEvent('pointermove',o(560,ty)));g.dispatchEvent(new PointerEvent('pointerup',o(560,ty)));})()`); await wait(900);
+      await js(`(()=>{const up=document.getElementById('app').classList.contains('above');const g=document.getElementById('grip');const o=(x,y)=>({bubbles:true,pointerId:7,button:0,screenX:x,screenY:y});const ty=620;g.dispatchEvent(new PointerEvent('pointerdown',o(500,500)));g.dispatchEvent(new PointerEvent('pointermove',o(560,ty)));g.dispatchEvent(new PointerEvent('pointerup',o(560,ty)));})()`); await wait(900);
       const wb1 = win.getBounds(), pw = settings.get('window');
       ok('dragging the panel corner resizes it, keeps the pet in place and remembers the size', wb1.width >= wb0.width + 100 && pw.panelW >= 450 && pw.panelH >= 600 && near(petPos(), pr0, 2), JSON.stringify([wb0.width, wb1.width, pw.panelW, pw.panelH, pr0, petPos()]));
+      await js(`document.getElementById('grip').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`); await wait(700);
+      // the opposite (top-left) corner works too: drag it out to the left and up
+      const pr2 = petPos();
+      await js(`(()=>{const g=document.querySelector('.grip[data-c="tl"]');const o=(x,y)=>({bubbles:true,pointerId:8,button:0,screenX:x,screenY:y});g.dispatchEvent(new PointerEvent('pointerdown',o(500,500)));g.dispatchEvent(new PointerEvent('pointermove',o(440,400)));g.dispatchEvent(new PointerEvent('pointerup',o(440,400)));})()`); await wait(900);
+      const pw2 = settings.get('window');
+      ok('any corner resizes: dragging the top-left one out grows the panel and keeps the pet in place', pw2.panelW >= 450 && pw2.panelH >= 600 && near(petPos(), pr2, 2), JSON.stringify([pw2.panelW, pw2.panelH]));
       await js(`document.getElementById('grip').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`); await wait(700);
       ok('double-clicking the corner resets the size', settings.get('window').panelW === 336 && settings.get('window').panelH === 504);
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(400);

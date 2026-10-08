@@ -465,25 +465,28 @@ $('.tabs').addEventListener('keydown', (e) => {
 });
 $('#collapse').addEventListener('click', () => setMode('collapsed'));
 
-// Resize the panel by dragging its corner. The pet stays put; the panel grows away from it (and evenly sideways).
-const grip = $('#grip');
-grip.addEventListener('pointerdown', (e) => {
-  e.preventDefault(); e.stopPropagation();
-  try { grip.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
-  resizing = { x: e.screenX, y: e.screenY, w: PANEL_W, h: PANEL_H, above: appEl.classList.contains('above'), t: 0 };
-});
-grip.addEventListener('pointermove', (e) => {
-  if (!resizing) return;
-  const dx = e.screenX - resizing.x, dy = e.screenY - resizing.y;
-  applyPanelSize(resizing.w + dx * 2, resizing.h + (resizing.above ? -dy : dy));
-  const now = performance.now(); if (now - resizing.t > 30) { resizing.t = now; sendLayout(); }
-});
+// Resize the panel from any corner: dragging outward grows it. The pet stays put, so width grows evenly on both sides
+// and height grows away from the pet — which is why a corner near the screen edge isn't a dead end any more.
 const endResize = () => {
   if (!resizing) return; resizing = null; sendLayout();
   bridge.setSettings({ window: { panelW: PANEL_W, panelH: PANEL_H } });
 };
-grip.addEventListener('pointerup', endResize); grip.addEventListener('pointercancel', endResize);
-grip.addEventListener('dblclick', () => { applyPanelSize(336, 504); sendLayout(); bridge.setSettings({ window: { panelW: 336, panelH: 504 } }); });
+for (const grip of document.querySelectorAll('.grip')) {
+  const c = grip.dataset.c || 'br';
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    try { grip.setPointerCapture(e.pointerId); } catch { /* synthetic */ }
+    resizing = { x: e.screenX, y: e.screenY, w: PANEL_W, h: PANEL_H, sx: c.endsWith('l') ? -1 : 1, sy: c.startsWith('t') ? -1 : 1, t: 0 };
+  });
+  grip.addEventListener('pointermove', (e) => {
+    if (!resizing) return;
+    const dx = (e.screenX - resizing.x) * resizing.sx, dy = (e.screenY - resizing.y) * resizing.sy;
+    applyPanelSize(resizing.w + dx * 2, resizing.h + dy);
+    const now = performance.now(); if (now - resizing.t > 30) { resizing.t = now; sendLayout(); }
+  });
+  grip.addEventListener('pointerup', endResize); grip.addEventListener('pointercancel', endResize);
+  grip.addEventListener('dblclick', () => { applyPanelSize(336, 504); sendLayout(); bridge.setSettings({ window: { panelW: 336, panelH: 504 } }); });
+}
 
 addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && tourStep >= 0) { endTour(); return; }

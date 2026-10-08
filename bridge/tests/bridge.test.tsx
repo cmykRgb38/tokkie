@@ -111,10 +111,12 @@ test('✨ Optimize on the bar rewrites the typed prompt in place, and Undo puts 
   await $.session.start({ source: 'startup', cwd: '/work' } as never)
   await clock.advance(10)
   for (const surface of ['desktop', 'terminal'] as const) {
-    draft = 'fix the login thing pls'
+    draft = 'fix the login thing pls'; asked = null
     const ui = await $.ui.mount({ plugin: 'tokkie-bridge', surface, component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
     expect(await ui.find({ key: 'opt' } as never)).toBeDefined()
-    await ui.press({ key: 'opt' } as never)
+    await ui.press({ key: 'opt' } as never)            // opens the style × model pick
+    expect(asked).toBe(null)
+    await ui.press({ key: 'go' } as never)
     expect(asked.model).toBe('sonnet')
     expect(draft).toBe('Fix the login bug in src/auth.ts and add a test.')
     expect(await ui.find({ type: 'Text', text: /Named the file/ } as never)).toBeDefined()
@@ -137,10 +139,12 @@ test('the bar’s style × model picker takes effect at once and tell Tokkie', a
   await $.session.start({ source: 'startup', cwd: '/work' } as never)
   await clock.advance(10)
   const ui = await $.ui.mount({ plugin: 'tokkie-bridge', surface: 'desktop', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false } } as never)
+  expect(await ui.find({ key: 'optcfg' } as never)).toBeFalsy()   // the picker hides until Optimize is pressed
+  await ui.press({ key: 'opt' } as never)
   await (ui as any).select({ key: 'optcfg', value: 'shorter:opus' })
   expect(JSON.parse(files[`${H}/prefs.json`]).optimizerModel).toBe('opus')
   expect(JSON.parse(files[`${H}/prefs.json`]).optimizerMode).toBe('shorter')
-  await ui.press({ key: 'opt' } as never)
+  await ui.press({ key: 'go' } as never)
   expect(asked.model).toBe('opus')
   expect(asked.system.includes('as few words as possible')).toBe(true)
   expect(draft).toBe('Fix the login bug.')

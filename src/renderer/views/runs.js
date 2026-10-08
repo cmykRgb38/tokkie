@@ -20,7 +20,12 @@ export const fmtUsdRange = (c) => (c.p75 < 0.01 ? '<$0.01' : `$${c.p25.toFixed(2
 export async function runGuess(api, text) {
   let e; try { e = await api.estimate(text); } catch { return null; }
   if (!e || !e.headline) return null;
-  return el('p', { class: 'muted', text: `A run with this prompt${e.chat ? ' in your current chat' : ''}: ≈ ${fmtTokens(e.headline.p25)}–${fmtTokens(e.headline.p75)} tokens${e.cost ? ` · ${fmtUsdRange(e.cost)} at API prices` : ''}, judging by your past runs. A clearer prompt mostly saves by avoiding do-overs, which no estimate can see in advance.` });
+  const c = e.chat;
+  const parts = [`A run with this prompt${c ? ' in your current chat' : ''}: ≈ ${fmtTokens(e.headline.p25)}–${fmtTokens(e.headline.p75)} tokens${e.cost ? ` · ${fmtUsdRange(e.cost)} at API prices` : ''}, judging by your past runs.`];
+  if (c && c.cold) parts.push(`That includes re-writing your ${fmtTokens(c.ctx)} chat, whose cache has expired.`);
+  if (c && c.newCost && c.times >= 1.5) parts.push(`In a new chat: ≈ ${fmtUsdRange(c.newCost)}.`);
+  parts.push('The wording itself only nudges this: a clearer prompt saves by avoiding do-overs, which no estimate can see in advance.');
+  return el('p', { class: 'muted', text: parts.join(' ') });
 }
 
 /** No Claude Code (Chat / Cowork users): copy the request, paste it into Claude, get the better prompt back there. */
@@ -80,8 +85,7 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
         o.changes.length ? el('ul', { class: 'optlist' }, o.changes.map((c) => el('li', { text: c }))) : null,
         o.questions.length ? el('div', { class: 'optq' }, el('b', { text: 'Fill in before sending: ' }), o.questions.join(' · ')) : null,
         el('button', { class: 'btn sm primary', type: 'button', text: 'Copy optimized', onclick: stop(async () => { await api.copyText(o.optimized); note('Optimized prompt copied.'); }) }),
-        o.guess ? el('p', { class: 'muted', text: o.guess }) : null,
-        el('p', { class: 'muted', text: `That counts only the words you type. ${r.headline ? `The run itself used ≈ ${fmtTokens(r.headline)}: ` : 'A run uses far more: '}mostly Claude reading files, thinking and writing. A clearer prompt saves there, by cutting wrong turns, not by being shorter.` }),
+        el('p', { class: 'muted', text: `That counts only the words you type. ${r.headline ? `This run used ≈ ${fmtTokens(r.headline)}${r.usd != null ? ` ($${r.usd.toFixed(2)})` : ''}: ` : 'A run uses far more: '}mostly Claude reading files, thinking and writing, and re-reading the chat. A rewrite can’t be priced before it runs: wording only nudges how much work Claude does, so no forecast here would be honest. It saves by cutting wrong turns; to see whether it did, send it (ideally in a new chat) and compare it here.` }),
       ].filter(Boolean));
     };
     drawOpt();
@@ -91,7 +95,6 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
       let res; try { res = await api.optimize(text); } catch { res = { ok: false, error: 'Something went wrong.' }; }
       opts.set(id, res && res.ok ? { ok: true, optimized: res.optimized, changes: res.changes, questions: res.questions, before: res.before.promptTokens, after: res.after.promptTokens } : { ok: false, error: (res && res.error) || 'Couldn’t optimize.', chat: res && res.chat, tip: res && res.tip });
       drawOpt();
-      if (res && res.ok) { const g = await runGuess(api, res.optimized); if (g && opts.get(id)?.ok) { opts.get(id).guess = g.textContent; drawOpt(); } }
     }) }, icon('sparkle'), 'Optimize'));
     const detail = el('div', { class: 'rdetail', hidden: !isOpen, onclick: (e) => e.stopPropagation() }, full, actions, optOut, msg);
     const card = el('div', { class: 'run openable', role: 'button', 'aria-expanded': String(isOpen), tabindex: '0', title: isOpen ? '' : 'Click to see the full prompt' },

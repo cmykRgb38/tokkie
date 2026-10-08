@@ -44,7 +44,7 @@ export function planView(root, api) {
       el('div', { class: 'row', style: 'gap:6px;justify-content:flex-start' },
         el('button', { class: 'btn sm primary', type: 'button', text: 'Copy optimized', onclick: async () => { await api.copyText(r.optimized); flash('Optimized prompt copied — paste it into Claude.'); } }),
         el('button', { class: 'btn sm', type: 'button', text: 'Use it here', title: 'Put it in the box above and estimate it', onclick: () => { ta.value = r.optimized; ta.dispatchEvent(new Event('input', { bubbles: true })); optBox.hidden = true; } })),
-      el('p', { class: 'muted', text: 'That counts only the words you type. The run itself uses far more (Claude reading files, thinking, writing), and a clearer prompt saves there by cutting wrong turns, so it may be a little longer. Send it, then compare in History.' }),
+      el('p', { class: 'muted', text: 'Those token counts are just the words you type, and a clearer prompt may be a little longer. Send it, then compare in History.' }),
     ].filter(Boolean));
     const g = await runGuess(api, r.optimized); if (g && !optBox.hidden) optBox.append(g);
   });
