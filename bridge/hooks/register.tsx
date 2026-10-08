@@ -214,7 +214,7 @@ async function setOptPrefs($: Engine, mode: string, model: string) {
 }
 /** A model or mode picked on the bar: used at once, and handed to Tokkie so its Settings match. */
 async function setOptPref($: Engine, key: 'model' | 'mode', value: string) {
-  await update($, opt, (o) => ({ ...o, [key]: value, error: undefined }))   // picking stays open: Go is next
+  await update($, opt, (o) => ({ ...o, [key]: value, error: undefined }))
   try {
     const dir = await tokkieHome($)
     const o = await read($, opt)
@@ -224,6 +224,20 @@ async function setOptPref($: Engine, key: 'model' | 'mode', value: string) {
 
 const TONE: Record<string, string> = { good: '#4fc98a', warn: '#e8b931', bad: '#f06a5f' }
 const NEUTRAL = '#6b6b78'
+// Capsule tints per item: [fill, outline, icon]. A warning or alert tone takes over the item's own colour.
+const TINT: Record<string, [string, string, string]> = {
+  usage: ['rgba(63,166,107,0.13)', 'rgba(63,166,107,0.32)', '#3a9a62'],
+  pace: ['rgba(140,100,210,0.13)', 'rgba(140,100,210,0.32)', '#8a5fd0'],
+  status: ['rgba(27,161,196,0.11)', 'rgba(27,161,196,0.30)', '#1b9cbe'],
+  next: ['rgba(184,140,40,0.13)', 'rgba(184,140,40,0.34)', '#b8892a'],
+  tokens: ['rgba(47,104,192,0.10)', 'rgba(47,104,192,0.28)', '#2f68c0'],
+  lastPrompt: ['rgba(184,140,40,0.13)', 'rgba(184,140,40,0.34)', '#b8892a'],
+  context: ['rgba(47,104,192,0.10)', 'rgba(47,104,192,0.28)', '#2f68c0'],
+  cache: ['rgba(27,161,196,0.11)', 'rgba(27,161,196,0.30)', '#1b9cbe'],
+  agents: ['rgba(196,80,127,0.11)', 'rgba(196,80,127,0.32)', '#c4507f'],
+  warn: ['rgba(217,150,43,0.14)', 'rgba(217,150,43,0.36)', '#d9962b'],
+  bad: ['rgba(214,69,69,0.12)', 'rgba(214,69,69,0.36)', '#d64545'],
+}
 const ICON_GREY = '#8d8d99'                 // readable on both light and dark
 
 // 24×24 line icons (desktop / editor / mobile draw them; the terminal gets a glyph instead).
@@ -290,13 +304,12 @@ export const register: Register = on => {
     const model = o.model && MODELS.includes(o.model) ? o.model : b.optimizer ? b.optimizer.model : 'haiku'
     const mode = o.mode === 'shorter' || o.mode === 'clearer' ? o.mode : b.optimizer ? b.optimizer.mode : 'clearer'
     const { Select } = table
-    const label = o.busy ? (mode === 'shorter' ? '✂ Shortening…' : '✨ Optimizing…') : o.picking ? '✨ Optimize ▴' : '✨ Optimize'
-    // One button keeps the bar to one row: press it to pick style × model, then Go (the pick is remembered).
+    const label = o.busy ? (mode === 'shorter' ? '✂ Shortening…' : '✨ Optimizing…') : mode === 'shorter' ? '✂ Shorten' : '✨ Optimize'
+    // Optimize sits on its own row on top of the bar, with its style × model picker beside it ("Clearer · Haiku").
     const optButton = b.optimizer && Button ? (
       <Box key="optbox" flexDirection="row" flexShrink={0} columnGap={1} alignItems="center">
-        <Button key="opt" label={label} onPress={() => { if (!o.busy) void update($, opt, (x) => ({ ...x, picking: !x.picking, error: undefined })) }} />
-        {o.picking && !o.busy && Select ? <Select key="optcfg" options={OPT_CHOICES} value={`${mode}:${model}`} onSelect={(v: string) => { const [md, ml] = v.split(':'); void setOptPrefs($, md, ml) }} /> : null}
-        {o.picking && !o.busy ? <Button key="go" label="Go" onPress={() => { void update($, opt, (x) => ({ ...x, picking: false })).then(() => optimizeDraft($, model, mode)) }} /> : null}
+        <Button key="opt" label={label} onPress={() => { if (!o.busy) void optimizeDraft($, model, mode) }} />
+        {Select ? <Select key="optcfg" options={OPT_CHOICES} value={`${mode}:${model}`} onSelect={(v: string) => { const [md, ml] = v.split(':'); void setOptPrefs($, md, ml) }} /> : null}
       </Box>
     ) : null
     const undoButton = o.original && Button ? <Button key="undo" label="Undo" onPress={() => { void undoOptimize($) }} /> : null
@@ -315,38 +328,32 @@ export const register: Register = on => {
       const Svg = table.Svg as any
       // One slim row: icon + value per item, no boxes. Hovering an item lights it and reveals a line saying
       // what it means (the surface's own hover-reveal: no hook runs, nothing leaves the drawing).
-      const HL = '#8080802e'
+      const items = [...(b.alert ? [{ k: 'alert', label: 'Heads-up', value: '', tone: 'bad', tip: b.alert } as BandItem] : []), ...b.items]
+      const half = items.length / 2
       return (
-        <Box flexDirection="column" overflow="hidden">
-          {/* Explanations and results go ABOVE the row: the bar sits on the prompt box, so a line added below
-              pushes the row up under the cursor, which flips the hover on and off (the "double vision"). */}
-          {b.items.map((it, i) => (
-            <Box key={`t${i}`} display="none" hover={{ scope: `tokkie-${i}`, display: 'flex' }}>
-              <Text dimColor wrap="wrap"><Text bold>{it.label}</Text>{it.tip ? ` — ${it.tip}` : ''}</Text>
-            </Box>
-          ))}
-          {b.alert ? (
-            <Box key="talert" display="none" hover={{ scope: 'tokkie-alert', display: 'flex' }}>
-              <Text color={TONE.bad} wrap="wrap"><Text bold>Heads-up</Text> — {b.alert}</Text>
-            </Box>
-          ) : null}
+        <Box flexDirection="column">
           {optLine}
+          {optButton}
+          {/* Capsules: tinted and outlined, side by side. The app rounds a Box only through its border, and a border
+              brings padding that makes the band tall: paddingY 0 takes it back. A capsule never shrinks. Each one is a
+              hover scope with its own card, placed above it (absolute: nothing moves under the pointer). */}
           <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap={1} rowGap={0}>
-            {b.alert ? (
-              <Box key="calert" flexDirection="row" flexShrink={0} alignItems="center" paddingX={1} hover={{ scope: 'tokkie-alert', backgroundColor: HL }}>
-                <Svg source={icon('alert', TONE.bad)} alt="Heads-up" width={12} height={12} />
-              </Box>
-            ) : null}
-            {b.items.map((it, i) => {
+            {items.map((it, i) => {
               const color = it.tone ? TONE[it.tone] : undefined
+              const tint = TINT[it.tone === 'bad' ? 'bad' : it.tone === 'warn' ? 'warn' : it.k] || TINT.status
               return (
-                <Box key={`c${i}`} flexDirection="row" flexShrink={0} alignItems="center" columnGap={1} paddingX={1} hover={{ scope: `tokkie-${i}`, backgroundColor: HL }}>
-                  <Svg source={icon(k(it.k), color || ICON_GREY)} alt={it.label} width={12} height={12} />
-                  <Text color={color} wrap="truncate">{it.value}</Text>
+                <Box key={`c${i}`} flexDirection="row" flexShrink={0} alignItems="center" columnGap={1} paddingX={1} paddingY={0}
+                  borderStyle="round" borderColor={tint[1]} backgroundColor={tint[0]}>
+                  <Svg source={icon(k(it.k), tint[2])} alt={it.label} width={14} height={14} />
+                  {it.value ? <Text color={color} wrap="truncate">{it.value}</Text> : null}
+                  <Box position="absolute" bottom={1} {...(i < half ? { left: 0 } : { right: 0 })} width={46} display="none" hover={{ display: 'flex' }}
+                    flexDirection="column" paddingX={1} paddingY={0} borderStyle="round" borderColor="subtle" backgroundColor="background">
+                    <Text bold color={it.k === 'alert' ? TONE.bad : undefined} wrap="wrap">{it.label}{it.value ? `: ${it.value}` : ''}</Text>
+                    {it.tip ? <Text dimColor wrap="wrap">{it.tip}</Text> : null}
+                  </Box>
                 </Box>
               )
             })}
-            {optButton}
           </Box>
         </Box>
       )
