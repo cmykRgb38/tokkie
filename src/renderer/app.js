@@ -1,4 +1,4 @@
-import { $, clamp, fmtPct, fmtDur, fmtClockDur, fmtTokens, fmtRange, fmtRunOut, fmtRunOutShort, chatAdvice } from './util.js';
+import { $, clamp, fmtPct, fmtDur, fmtClockDur, fmtTokens, fmtRange, fmtRunOut, fmtRunOutShort, chatAdvice, provenance } from './util.js';
 import { Pet, EMOTES, PERSONALITY, SCENE_W } from './pet.js';
 const M_CX = window.TokkieMonster.CX;
 import { usageView, kindUsed } from './views/usage.js';
@@ -189,7 +189,7 @@ function dockLines(S, d, on = S.settings.dock || {}) {
     const v = `${m.approx ? '≈' : ''}${Math.round(m.pct)}%` + (m.limitUsd ? ` · $${Math.round(m.usd)}/${Math.round(m.limitUsd)}` : '') + (old ? ` · ${fmtDur(age / 1000)} old` : '');
     const low = S.nextFit && S.nextFit.status !== 'ok' && S.nextFit.id === m.id;
     const needLimit = m.id === 'extra' && !m.limitUsd;
-    out.push({ k: 'usage', label: short[m.id] || 'Usage', value: v, pill: `${m.approx ? '≈' : ''}${Math.round(m.pct)}% used` + (m.limitUsd ? ` · $${Math.round(m.usd)}` : '') + (old ? ` · ${fmtDur(age / 1000)} old` : ''), tone: low ? 'bad' : old ? '' : kindUsed(m.pct), dot: low ? 'bad' : old ? 'idle' : kindUsed(m.pct), title: `${m.label}${m.mode === 'dollars' ? ' — Claude Code part is exact dollars from the bridge' : m.approx ? ' — live estimate since Claude’s last reading' : old ? ` — Claude’s last reading, ${fmtDur(age / 1000)} ago. Open Claude → Settings → Usage to refresh it, or use Sync with Claude` : ''}${needLimit ? '. Enter your $ limit in Tokkie → Settings for dollars and a live estimate' : ''}` });
+    out.push({ k: 'usage', label: short[m.id] || 'Usage', value: v, pill: `${m.approx ? '≈' : ''}${Math.round(m.pct)}% used` + (m.limitUsd ? ` · $${Math.round(m.usd)}` : '') + (old ? ` · ${fmtDur(age / 1000)} old` : ''), tone: low ? 'bad' : old ? '' : kindUsed(m.pct), dot: low ? 'bad' : old ? 'idle' : kindUsed(m.pct), title: `${m.label} — ${provenance(m, now)}${old ? '. Open Claude → Settings → Usage to refresh it, or use Sync with Claude' : ''}${needLimit ? '. Enter your $ limit in Tokkie → Settings for dollars and a live estimate' : ''}` });
   }
   if (on.pace !== false && m && m.pace) {
     const p = m.pace, tone = p.tone === 'alert' ? 'bad' : p.tone === 'fast' ? 'warn' : 'good';

@@ -140,7 +140,11 @@ class Engine extends EventEmitter {
     this.store.onSample = (s) => { this._attachEstimate(s); this._persistSamples(); this.emit('turn-end', { duration: s.duration, tokens: s.tokens }); };
     this.tailer.start();
     this._codexLimitsLifecycle();
-    this.tick = setInterval(() => { this._readLimits(); this._readBridge(); this._readDesktop(); this._pollCodex(); this.store.prune(); }, 2000);
+    let n = 0;
+    this.tick = setInterval(() => {
+      this._readLimits(); this._readBridge(); this._readDesktop(); this._pollCodex(); this.store.prune();
+      if (++n % 15 === 0) this.snapshot();   // every ~30 s, even with nothing on screen: notices limits resetting
+    }, 2000);
     this.tick.unref?.();
     this.emit('change');
   }
@@ -282,8 +286,45 @@ class Engine extends EventEmitter {
   }
 
   /** What the Usage tab shows for Codex: found or not, its exact limits, today's runs. */
+  /**
+   * Steady readings. Within one limit window usage only goes up, so a live estimate that dips a little below what we
+   * last showed (a fresh reading from Claude landing just under our extrapolation) would only look like a glitch:
+   * hold the higher number until the next exact reading or the window resets. Big drops are resets and pass through.
+   */
+  _steady(meters, now) {
+    const held = this._held || (this._held = {});
+    for (const m of meters) {
+      const h = held[m.id];
+      const reset = h && ((h.resetsAt && now >= h.resetsAt) || (m.resetsAt && h.resetsAt && m.resetsAt > h.resetsAt + 60e3));
+      if (h && !reset && m.approx && m.pct < h.pct && h.pct - m.pct < 15 && now - h.at < 5 * 3600e3) { m.pct = h.pct; m.steadied = true; }
+      held[m.id] = { pct: m.pct, resetsAt: m.resetsAt || (h && !reset ? h.resetsAt : null), at: now };
+    }
+  }
+
+  /**
+   * "Your limit has reset": once per window, when one you had used at least half of starts over. Seen either as the
+   * reset time passing (when the source gives it) or as the reading dropping by 40 points or more.
+   * Readings are [{key, provider, label, pct, resetsAt, exact}].
+   */
+  _watchResets(readings, now) {
+    const w = this._resetWatch || (this._resetWatch = {});
+    for (const r of readings) {
+      const p = w[r.key];
+      if (!p) { w[r.key] = { pct: r.pct, resetsAt: r.resetsAt || null, fired: false }; continue; }
+      const newWindow = (r.resetsAt && p.resetsAt && r.resetsAt > p.resetsAt + 60e3) || r.pct <= p.pct - 40
+        || (p.fired && p.resetsAt && now >= p.resetsAt + 30e3 && (!r.resetsAt || r.resetsAt > now));   // already announced: the first reading that isn't the stale one starts the new window
+      if (!p.fired && p.pct >= 50 && ((p.resetsAt && now >= p.resetsAt + 30e3) || newWindow)) {
+        p.fired = true;                         // once per window, even while the old reading lingers
+        this.emit('limit-reset', { provider: r.provider, label: r.label, was: p.pct });
+      }
+      if (newWindow) w[r.key] = { pct: r.pct, resetsAt: r.resetsAt || null, fired: false };
+      else { p.pct = Math.max(p.pct, r.pct); p.resetsAt = p.resetsAt || r.resetsAt || null; }
+    }
+  }
+
   _codexView(now) {
     const on = this.codexOn(), available = this.codex.available(), L = this.codexLimits;
+    if (on && L && L.latest) this._watchResets(L.latest.windows.map((x) => ({ key: 'codex:' + x.mins, provider: 'codex', label: x.label + ' limit', pct: x.pct, resetsAt: x.resetsAt, exact: true })), now);
     const day = startOfDay(now), runs = on ? this.store.samples.filter((x) => x.provider === 'codex' && x.start >= day) : [];
     return { on, available, bin: !!L, limits: L ? L.latest : null, limitsError: L ? L.error : (available && on && this._noCodexBin ? 'no-cli' : null), active: !!(on && this.codex.active),
       today: { runs: runs.length, tokens: runs.reduce((a, x) => a + (x.headline || 0), 0) } };
@@ -307,6 +348,8 @@ class Engine extends EventEmitter {
     const live = (id, reading) => this._live(id, reading, now);
     const meters = buildMeters({ statusline: lim, desktop: this._mergedDesktop(), fallback, now, live });
     const limitUsd = this.settings.get('spendLimitUsd') || 0, resetDay = this.settings.get('resetDay') || 1;
+    this._steady(meters, now);
+    this._watchResets(meters.filter((m) => m.id !== 'budget').map((m) => ({ key: 'claude:' + m.id, provider: 'claude', label: m.label, pct: m.pct, resetsAt: m.resetsAt, exact: !m.approx })), now);
     for (const m of meters) {
       if (m.id === 'five' && !m.resetsAt && t.block) m.resetsAt = t.block.end;      // our own guess at the 5-hour window
       if ((m.id === 'extra' || m.id === 'spend') && limitUsd > 0) { m.limitUsd = limitUsd; m.usd = (m.pct / 100) * limitUsd; }
@@ -338,7 +381,7 @@ class Engine extends EventEmitter {
     }
     const turns = this.bridge.allTurns();
     const lastPrompt = turns.length ? turns[turns.length - 1] : null;
-    const eta = active ? predict((active.provider === 'codex' ? this.store.samples.filter((x) => x.provider === 'codex') : this.claudeSamples()), '', active.chars || 200, { prev: active.prev || 0, hint: active.hint }).duration : null;
+    const eta = active ? predict((active.provider === 'codex' ? this.store.samples.filter((x) => x.provider === 'codex' && x.duration > 0) : this.claudeSamples()), '', active.chars || 200, { prev: active.prev || 0, hint: active.hint }).duration : null;
     return {
       now, loaded: this.loaded, eta,
       active, activeCount: this.store.activeCount(now) + (this.codex.active ? 1 : 0), lastTurnEnd: Math.max(this.store.lastTurnEnd || 0, this.codexOn() ? this.codex.lastTurnEnd : 0), lastTurn: { end: this.store.recent.end, dur: this.store.recent.dur },
@@ -456,7 +499,7 @@ class Engine extends EventEmitter {
     const fresh = q((k) => pred.headlineWarm[k] + 0.1 * pred.steps[k] * NEW_CHAT_CTX);
     const last = [...this.store.samples].reverse().find((x) => x.sessionId === c.sessionId);
     const where = last ? (last.cwd ? path.basename(last.cwd) : '') : '';
-    return { sessionId: c.sessionId, ctx, cold, expiresAt: c.expiresAt, where, source: last ? last.source || '' : '', steps: pred.steps, freshHere, rereads, here, fresh,
+    return { sessionId: c.sessionId, ctx, cold, expiresAt: c.expiresAt, where, source: last ? last.source || '' : '', steps: pred.steps, freshHere, rereads, here, fresh, bloat: this.store.bloatOf(c.sessionId),
       times: here.p50 / Math.max(1, fresh.p50) };
   }
 

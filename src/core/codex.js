@@ -2,7 +2,7 @@
 /**
  * Codex (OpenAI). Its desktop app keeps conversations in SQLite under ~/.codex (read here, read-only, with Node's
  * built-in sqlite), and exact plan limits come from Codex's own app-server (`account/rateLimits/read`), which signs in
- * with Codex's own login: Tokkie never reads `auth.json` or any token.
+ * with Codex's own login: Tokkie never reads its login file or any token.
  *
  *  · runs:   thread_turns (start, end, duration, status) in thread_history_1.sqlite, and the thread's running token
  *            total (threads.tokens_used in state_5.sqlite). A new turn's tokens are the total's increase since we last

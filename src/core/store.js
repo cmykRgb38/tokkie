@@ -1,5 +1,5 @@
 'use strict';
-const { weighted, headline } = require('./parser');
+const { weighted, headline, IMAGE_TOKENS } = require('./parser');
 
 const H = 3600e3, DAY = 24 * H;
 const MAX_TURN_MS = 4 * H, MIN_TURN_MS = 2500, STALE_TURN_MS = 15 * 60e3;
@@ -23,6 +23,7 @@ class Store {
     this.lastDur = new Map();     // sessionId -> seconds of its most recent finished turn
     this.recent = { dur: 0, end: 0 }; // most recent finished turn anywhere
     this.cacheBySession = new Map();  // sessionId -> { at, ttl, ctx, model } from the main thread's latest request
+    this.bloat = new Map();       // sessionId -> what fills the chat since its last /compact: { names, seen, parts: Map(label -> {tokens, count}), at }
     this.onPrune = null;          // called with each message about to be forgotten (the engine banks its tokens for the pet)
     this.onSample = null;         // called with each newly finished turn (live only; engine sets it after the initial replay)
   }
@@ -55,9 +56,24 @@ class Store {
       const c = this.cacheBySession.get(ev.sessionId);
       const ctx0 = c ? c.ctx : 0, cold = !c || ev.ts - c.at > (c.ttl === '5m' ? 5 * 60e3 : 60 * 60e3);
       this.sessions.set(ev.sessionId, { ctx0, cold, provider: ev.provider || 'claude', start: ev.ts, chars: ev.chars, hint: ev.hint || 1, lastTs: ev.ts, tokens: 0, output: 0, prev: this.lastDur.get(ev.sessionId) || 0, preview: ev.preview || '', find: ev.find || '', cwd: ev.cwd || '', source: ev.source || '', file: ev.file || '', uuid: ev.uuid || '' });
+      if (ev.chars > 8000 || ev.images) {   // a big paste or attached images sit in the chat from now on too
+        if (ev.chars > 8000) this._bloatAdd(ev.sessionId, ev.summary ? 'Summary of the earlier chat' : 'Text you pasted', Math.round(ev.chars / 4), ev.ts);
+        if (ev.images) this._bloatAdd(ev.sessionId, 'Images you attached', ev.images * IMAGE_TOKENS, ev.ts, ev.images);
+      }
+    } else if (ev.kind === 'compact') {
+      this.bloat.delete(ev.sessionId);
+    } else if (ev.kind === 'results') {
+      const b = this._bloatOf(ev.sessionId);
+      for (const it of ev.items) {
+        if (b.seen.has(it.id)) continue;        // the same result logged twice
+        b.seen.add(it.id);
+        const label = b.names.get(it.id) || 'Tool output'; b.names.delete(it.id);
+        if (it.tokens > 0) this._bloatAdd(ev.sessionId, label, it.tokens, ev.ts);
+      }
     } else if (ev.kind === 'interrupt') {
       this.sessions.delete(ev.sessionId);
     } else if (ev.kind === 'usage') {
+      if (ev.tools) { const b = this._bloatOf(ev.sessionId); for (const t of ev.tools) if (!b.seen.has(t.id)) b.names.set(t.id, t.label); }
       if (!ev.sidechain) {
         const c = this.cacheBySession.get(ev.sessionId) || { at: 0, ttl: null };
         if (ev.ts >= c.at) this.cacheBySession.set(ev.sessionId, { at: ev.ts, ttl: ev.ttl || c.ttl, ctx: ev.input + ev.cacheRead + ev.cacheWrite, model: ev.model });
@@ -91,6 +107,32 @@ class Store {
     if (this.addSample(sample) && this.onSample) this.onSample(sample);
   }
 
+  _bloatOf(sid) {
+    let b = this.bloat.get(sid);
+    if (!b) { b = { names: new Map(), seen: new Set(), parts: new Map(), at: 0 }; this.bloat.set(sid, b); }
+    return b;
+  }
+
+  _bloatAdd(sid, label, tokens, ts, count = 1) {
+    const b = this._bloatOf(sid), p = b.parts.get(label) || { tokens: 0, count: 0 };
+    p.tokens += tokens; p.count += count; b.parts.set(label, p); b.at = Math.max(b.at, ts);
+    if (b.parts.size > 300) {   // keep memory flat in very long chats: forget the smallest parts
+      const small = [...b.parts].sort((x, y) => x[1].tokens - y[1].tokens).slice(0, 100);
+      for (const [k] of small) b.parts.delete(k);
+    }
+  }
+
+  /**
+   * What fills this chat since its last /compact, biggest first: file reads, command output, pastes, images…
+   * Estimates (≈ 4 characters a token); `n` parts at most, each {label, tokens, count}, plus their `total`.
+   */
+  bloatOf(sid, n = 3) {
+    const b = this.bloat.get(sid);
+    if (!b || !b.parts.size) return null;
+    const all = [...b.parts].map(([label, p]) => ({ label, tokens: p.tokens, count: p.count })).sort((x, y) => y.tokens - x.tokens);
+    return { top: all.slice(0, n), total: all.reduce((a, p) => a + p.tokens, 0) };
+  }
+
   prune() {
     const cut = this.now() - KEEP_MS;
     // oldest first, so whoever banks them can keep a simple "banked up to" mark
@@ -99,6 +141,7 @@ class Store {
     if (this.onPrune) for (const m of gone.sort((a, b) => a.ts - b.ts)) this.onPrune(m);
     for (const [sid, t] of this.sessions) if (this.now() - Math.max(t.lastTs, t.start) > 6 * H) this.sessions.delete(sid);
     for (const sid of this.lastDur.keys()) if (!this.sessions.has(sid) && this.lastDur.size > 200) this.lastDur.delete(sid);
+    for (const [sid, b] of this.bloat) if (b.at && b.at < cut) this.bloat.delete(sid);
   }
 
   /** Sum usage since a timestamp (optionally leaving out some sessions, e.g. ones already counted in exact dollars). */

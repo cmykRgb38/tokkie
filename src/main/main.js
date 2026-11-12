@@ -315,10 +315,10 @@ function setupIpc() {
   ipcMain.handle('settings:set', (_e, patch) => {
     const out = { ok: true };
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, error: 'bad request' };
-    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton', 'optimizerMode', 'optimizeHotkey', 'strip', 'stripPos', 'providers'];
+    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'notifyReset', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton', 'optimizerMode', 'optimizeHotkey', 'strip', 'stripPos', 'providers'];
     const clean = {};
     for (const k of allowed) if (Object.prototype.hasOwnProperty.call(patch, k)) clean[k] = patch[k];
-    const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'alertBubble', 'speechBubble', 'strip'];
+    const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'notifyReset', 'alertBubble', 'speechBubble', 'strip'];
     for (const k of bool) if (k in clean) clean[k] = !!clean[k];
     if ('theme' in clean && !['auto', 'light', 'dark'].includes(clean.theme)) delete clean.theme;
     if ('finishBy' in clean && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(clean.finishBy))) delete clean.finishBy;
@@ -500,6 +500,13 @@ else {
       const m = Math.floor(duration / 60), s = Math.round(duration % 60);
       const who = provider === 'codex' ? 'Codex' : 'Claude';   // say which AI finished: people run both at once
       const n = new Notification({ title: `${who} finished`, body: `Done after ${m}m ${String(s).padStart(2, '0')}s.`, silent: true });
+      n.on('click', () => showWindow('usage'));
+      n.show();
+    });
+    engine.on('limit-reset', ({ provider, label, was }) => {
+      if (!settings.get('notifyReset') || !Notification.isSupported()) return;
+      const who = provider === 'codex' ? 'Codex' : 'Claude';
+      const n = new Notification({ title: `${who}: your ${label.toLowerCase()} has reset`, body: `You had used ${Math.round(was)}%. It starts over now.`, silent: true });
       n.on('click', () => showWindow('usage'));
       n.show();
     });

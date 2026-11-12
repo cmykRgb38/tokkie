@@ -35,9 +35,10 @@ function meterNode(title, id, api) {
       const note = m.source === 'estimate' ? 'from your token budget'
         : m.source === 'manual' && age < 90 ? 'from you · just now'
         : m.approx && m.baseline != null ? `live estimate · ${who} ${fmtPct(m.baseline)}% ${fmtDur(age)} ago`
-        : age < 90 ? 'just now' : `Claude's last reading ${fmtDur(age)} ago`;
+        : m.source === 'claude-code' ? 'exact, from Claude Code' : age < 90 ? 'exact · just now' : `exact · Claude's reading ${fmtDur(age)} ago`;
       const how = m.mode === 'dollars' ? 'Claude only saves a reading now and then. Since then, Claude Code spend is exact (from the bridge); Cowork and Chat are estimated from tokens.'
         : m.approx ? 'Claude only saves a reading now and then. Tokkie adds what you have used since, calibrated against Claude’s earlier readings.' : '';
+      const steady = m.steadied ? ' Held steady: within a window usage only goes up, so a fresh reading just under the estimate does not pull it back.' : '';
       // what matters first: the pace/run-out line, then dollars, then where the number comes from
       const parts = [];
       if (m.pace) {
@@ -48,7 +49,7 @@ function meterNode(title, id, api) {
       if (m.limitUsd) parts.push(el('span', { class: 'val', text: `$${m.usd.toFixed(2)} of $${Math.round(m.limitUsd)}` }));
       else if (m.id === 'extra') parts.push(el('button', { class: 'btn sm quiet', type: 'button', text: 'Claude shows a $ limit? Enter it →', title: 'Type the $ limit from Claude → Settings → Usage (e.g. $600) for dollars and a live estimate', onclick: () => api.openTab('settings') }));
       if (m.resetsAt && m.resetsAt > now) parts.push(el('span', { text: `resets in ${fmtDur((m.resetsAt - now) / 1000)}` }));
-      parts.push(el('span', { class: 'prov', text: note, title: how }));
+      parts.push(el('span', { class: 'prov', text: note, title: (how + steady).trim() }));
       foot.replaceChildren(...parts);
     },
   };

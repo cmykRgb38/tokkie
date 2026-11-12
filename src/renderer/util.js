@@ -82,10 +82,29 @@ const usd = (v) => (v < 0.01 ? '<$0.01' : v < 10 ? `$${v.toFixed(2)}` : `$${Math
  * Plain words for what the chat you're in adds to a prompt's cost (engine's `chat` / `nextRun`): every step re-reads
  * the whole conversation, and an expired cache makes the first step re-write all of it. null when it doesn't matter.
  */
+/**
+ * Where a usage % comes from, in one plain sentence: exact (whose), an estimate (built from what), or your own number.
+ * Shown on every usage tip so a reading never passes for more certain than it is.
+ */
+export function provenance(m, now = Date.now()) {
+  if (!m) return '';
+  const ago = fmtDur(Math.max(0, now - (m.readAt || now)) / 1000);
+  const base = m.source === 'estimate' ? 'Estimate from the token budget you set'
+    : m.source === 'manual' ? `From the % you typed ${ago} ago` + (m.approx ? ', plus what you have used since' : '')
+    : m.mode === 'dollars' ? 'Claude’s last reading, plus exact Claude Code dollars since (Chat and Cowork estimated)'
+    : m.approx ? `Estimate: Claude’s reading ${ago} ago, plus what you have used since`
+    : m.source === 'claude-code' ? 'Exact, from Claude Code’s status line'
+    : `Exact, from the Claude app’s reading ${ago} ago`;
+  return base + (m.steadied ? ' (held steady: within a window usage only goes up)' : '');
+}
+
 export function chatAdvice(c, now = Date.now(), { prompt = false } = {}) {
   if (!c) return null;
   const times = Math.max(1, c.times || 1), big = times >= 2, coldBig = c.cold && c.ctx >= 50e3;
   if (!big && !coldBig) return null;
+  // what fills it (Claude Code only: file reads, command output, pastes…), when those parts are a real share of it
+  const parts = c.bloat && c.bloat.total >= Math.min(10e3, c.ctx * 0.2) ? c.bloat.top.filter((p) => p.tokens >= Math.max(2e3, c.ctx * 0.03)) : [];
+  const partsText = parts.length ? ` Most of it: ${parts.map((p) => `${p.label}${p.count > 1 ? ` ×${p.count}` : ''} (~${fmtTokens(p.tokens)})`).join(', ')}.` : '';
   const size = fmtTokens(c.ctx), where = c.where ? ` (${c.where}${c.source === 'cowork' ? ' · Cowork' : ''})` : '';
   const soon = !c.cold && c.expiresAt - now < 10 * 60e3 ? Math.max(1, Math.ceil((c.expiresAt - now) / 60e3)) : 0;
   const here = c.cost ? `≈ ${usd(c.cost.p50)}` : '', fresh = c.newCost ? `≈ ${usd(c.newCost.p50)}` : '';
@@ -93,9 +112,10 @@ export function chatAdvice(c, now = Date.now(), { prompt = false } = {}) {
   const body = `Your current chat${where} is ${size} tokens, and every step of a run re-reads all of it.`
     + (c.cold ? ` Its cache has expired, so the first step also re-writes all ${size} at full price.` : soon ? ` Its cache expires in ${soon} min: send soon, or start fresh.` : '')
     + (here && fresh ? ` ${prompt ? 'This prompt' : 'A typical run'} here ${here}; in a new chat ${fresh}.` : ` About ${Math.round(times)}× the usage of the same prompt in a new chat.`)
+    + partsText
     + ' In Claude Code type /clear (fresh) or /compact (keeps a summary); in Chat or Cowork start a new chat.';
   const value = here || `~${Math.round(times)}× new chat`;
   const alert = c.cold ? `Cache expired on this ${size} chat: the next message re-writes it all${here ? ` (${here})` : ''}. /compact or a new chat is cheaper.`
     : `This ${size} chat makes each prompt ~${Math.round(times)}× pricier than a new one${here ? ` (${here} vs ${fresh})` : ''}.`;
-  return { title, body, value, alert, tone: c.cold || times >= 5 ? 'bad' : 'warn', usd };
+  return { title, body, value, alert, tone: c.cold || times >= 5 ? 'bad' : 'warn', usd, parts, partsText };
 }

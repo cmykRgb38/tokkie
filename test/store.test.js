@@ -96,3 +96,39 @@ test('a run remembers the prompt preview and folder, and fills them into runs sa
   const s = st.samples.find((x) => x.start === 1e12);
   assert.equal(s.preview, 'Fix the login bug please'); assert.equal(s.cwd, '/work/app'); assert.equal(s.source, 'code');
 });
+
+test('what fills a chat: tool results named by their call, pastes and images, grouped, reset by /compact', () => {
+  const { parseLine } = require('../src/core/parser');
+  const { Store } = require('../src/core/store');
+  const s = new Store();
+  const ts = (n) => new Date(Date.now() - 60e3 + n * 1000).toISOString();
+  const feed = (o) => s.ingest(parseLine(JSON.stringify(o)));
+  const use = (n, id, tools) => feed({ type: 'assistant', timestamp: ts(n), sessionId: 'c', message: { id, model: 'm', role: 'assistant', content: tools.map(([tid, name, input]) => ({ type: 'tool_use', id: tid, name, input })), usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+  const res = (n, items) => feed({ type: 'user', timestamp: ts(n), sessionId: 'c', message: { role: 'user', content: items.map(([tid, content]) => ({ type: 'tool_result', tool_use_id: tid, content })) } });
+  feed({ type: 'user', timestamp: ts(0), sessionId: 'c', message: { role: 'user', content: [{ type: 'text', text: 'x'.repeat(40000) }, { type: 'image', source: {} }] } });
+  use(1, 'a1', [['t1', 'Read', { file_path: '/p/src/main.js' }], ['t2', 'Bash', { command: 'npm test\nmore' }]]);
+  res(2, [['t1', 'y'.repeat(80000)], ['t2', [{ type: 'text', text: 'z'.repeat(4000) }]]]);
+  use(3, 'a2', [['t3', 'Read', { file_path: '/p/src/main.js' }]]);
+  res(4, [['t3', 'y'.repeat(80000)]]);
+  res(5, [['t3', 'y'.repeat(80000)]]);                       // logged twice: counted once
+  const b = s.bloatOf('c', 5);
+  assert.deepEqual(b.top.map((p) => [p.label, p.tokens, p.count]), [['Read main.js', 40000, 2], ['Text you pasted', 10000, 1], ['Images you attached', 1600, 1], ['Ran npm test', 1000, 1]]);
+  feed({ type: 'system', subtype: 'compact_boundary', timestamp: ts(6), sessionId: 'c', content: 'Conversation compacted' });
+  assert.equal(s.bloatOf('c'), null, 'compacting starts the chat over');
+});
+
+test('tool labels stay short and readable', () => {
+  const { toolLabel } = require('../src/core/parser');
+  assert.equal(toolLabel('Grep', { pattern: 'onPrune' }), 'Searched “onPrune”');
+  assert.equal(toolLabel('WebFetch', { url: 'https://docs.example.com/a/b' }), 'Fetched docs.example.com');
+  assert.equal(toolLabel('mcp__plugin_design_figma__get_file', {}), 'get file (figma)');
+  assert.equal(toolLabel('Bash', { command: 'git log --oneline --decorate --graph --all' }).length <= 32, true);
+});
+
+test('command labels name the program, not the cd in front', () => {
+  const { toolLabel } = require('../src/core/parser');
+  assert.equal(toolLabel('Bash', { command: 'cd /Users/me/proj && npm test 2>&1 | tail' }), 'Ran npm test');
+  assert.equal(toolLabel('Bash', { command: 'cd "/a b" && cd c; FOO=1 sed -n 1,5p x.js' }), 'Ran sed');
+  assert.equal(toolLabel('Bash', { command: 'git -C . log' }), 'Ran git');
+  assert.equal(toolLabel('Bash', { command: '/usr/bin/python3 - <<EOF' }), 'Ran python3');
+});

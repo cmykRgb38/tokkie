@@ -110,9 +110,10 @@ export function settingsView(root, api) {
   const stripT = toggle('Floating strip', 'A slim bar with the same items, tips and Optimize. Drag it just above Chat’s or Cowork’s prompt box; it stays there.', 'strip', api);
 
   const clip = toggle('Watch clipboard', 'Estimate automatically whenever you copy a long prompt.', 'clipboardWatch', api);
-  const alertT = toggle('Pet reacts when Claude needs me', 'It hops and shows a blinking ! when a run finishes or goes quiet.', 'alertBubble', api);
+  const alertT = toggle('Pet reacts when a run finishes', 'It hops and shows a blinking ! when Claude or Codex finishes, or when Claude goes quiet mid-run.', 'alertBubble', api);
   const bubbleT = toggle('Show the speech bubble', 'The “Claude is done — your turn” note above the pet (or Codex, whichever finished).', 'speechBubble', api);
   const notify = toggle('Notify when done', 'A quiet alert when a run longer than a minute finishes.', 'notifyDone', api);
+  const notifyR = toggle('Notify when a limit resets', 'When a limit you had used half or more of starts over, for Claude and Codex.', 'notifyReset', api);
   const login = toggle('Launch at login', null, 'launchAtLogin', api);
   const top = toggle('Always on top', null, 'alwaysOnTop', api);
 
@@ -137,7 +138,7 @@ export function settingsView(root, api) {
     group('On your desktop', layoutRow, dockBox, stripT.row),
     group('Appearance', field('Theme', null, theme.node), field('Pet size', null, size.node)),
     group('Estimate', hotRow, clip.row),
-    group('Alerts', alertT.row, bubbleT.row, notify.row),
+    group('Alerts', alertT.row, bubbleT.row, notify.row, notifyR.row),
     group('System', login.row, top.row, budgetRow,
       el('div', { class: 'field inline' }, el('div', { class: 'ftext' }, el('div', { class: 't', text: 'Tour' }), el('div', { class: 'd', text: 'A one-minute walk through what Tokkie can do.' })),
         el('button', { class: 'btn sm', type: 'button', text: 'Take the tour', onclick: () => api.startTour() }))),
@@ -191,7 +192,7 @@ export function settingsView(root, api) {
         : fresh ? '✓ Received! The shortcut works.' : hk && hk.firedAt ? `● Active · last used ${fmtDur((Date.now() - hk.firedAt) / 1000)} ago` : '● Active — press it now to test';
       hotStatus.style.color = ok ? 'var(--good)' : 'var(--bad)';
       optBtnT.sw.setAttribute('aria-checked', String(st.optimizeButton !== false));
-      for (const [t, k] of [[alertT, 'alertBubble'], [bubbleT, 'speechBubble'], [clip, 'clipboardWatch'], [notify, 'notifyDone'], [login, 'launchAtLogin'], [top, 'alwaysOnTop']]) t.sw.setAttribute('aria-checked', String(!!st[k]));
+      for (const [t, k] of [[alertT, 'alertBubble'], [bubbleT, 'speechBubble'], [clip, 'clipboardWatch'], [notify, 'notifyDone'], [notifyR, 'notifyReset'], [login, 'launchAtLogin'], [top, 'alwaysOnTop']]) t.sw.setAttribute('aria-checked', String(!!st[k]));
       bubbleT.sw.disabled = st.alertBubble === false; bubbleT.row.classList.toggle('is-disabled', st.alertBubble === false);
       login.sw.disabled = !s.packaged; login.row.title = s.packaged ? '' : 'Available in the installed app';
       if (document.activeElement !== budget) budget.value = st.fallbackBudget5h || '';

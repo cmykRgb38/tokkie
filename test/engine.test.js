@@ -245,3 +245,34 @@ test('the snapshot says which AI finished last, so "done" alerts can name it', a
   assert.equal(eng._snapshot(now).lastTurnBy, 'claude');
   eng.stop(); fs.rmSync(dir, { recursive: true });
 });
+
+test('limit resets are announced once per window, and only for limits you had used half of', async () => {
+  const { dir, eng } = rig();
+  const got = []; eng.on('limit-reset', (e) => got.push(e));
+  const t0 = Date.now(), R = (pct, resetsAt) => [{ key: 'codex:10080', provider: 'codex', label: 'Weekly limit', pct, resetsAt }];
+  eng._watchResets(R(72, t0 + 60e3), t0);
+  eng._watchResets(R(80, t0 + 60e3), t0 + 30e3);
+  eng._watchResets(R(80, t0 + 60e3), t0 + 120e3);          // reset time passed, the old reading still lingers
+  eng._watchResets(R(80, t0 + 60e3), t0 + 180e3);          // ...and again: no second alert
+  eng._watchResets(R(1, t0 + 7 * 86400e3), t0 + 240e3);    // the new window's first reading
+  assert.deepEqual(got, [{ provider: 'codex', label: 'Weekly limit', was: 80 }]);
+  // no reset time from the source: a big drop is the reset
+  const D = (pct) => [{ key: 'claude:five', provider: 'claude', label: '5-hour limit', pct, resetsAt: null }];
+  eng._watchResets(D(64), t0); eng._watchResets(D(70), t0 + 1); eng._watchResets(D(5), t0 + 2); eng._watchResets(D(3), t0 + 3);
+  assert.equal(got.length, 2); assert.equal(got[1].was, 70);
+  // barely used: nothing to celebrate
+  const L = (pct) => [{ key: 'claude:seven', provider: 'claude', label: 'Weekly limit', pct, resetsAt: null }];
+  eng._watchResets(L(30), t0); eng._watchResets(L(2), t0 + 1);
+  assert.equal(got.length, 2);
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('a live estimate never dips a little below what was shown in the same window; exact readings and resets pass through', () => {
+  const { dir, eng } = rig();
+  const t0 = Date.now(), m = (pct, approx, resetsAt = null) => [{ id: 'five', pct, approx, resetsAt }];
+  let x = m(42, true); eng._steady(x, t0); assert.equal(x[0].pct, 42);
+  x = m(39, true); eng._steady(x, t0 + 60e3); assert.equal(x[0].pct, 42, 'held');
+  x = m(38, false); eng._steady(x, t0 + 120e3); assert.equal(x[0].pct, 38, 'an exact reading wins');
+  x = m(10, true); eng._steady(x, t0 + 180e3); assert.equal(x[0].pct, 10, 'a big drop is a reset');
+  fs.rmSync(dir, { recursive: true });
+});

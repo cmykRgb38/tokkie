@@ -17,7 +17,7 @@ test('sub-agent messages count tokens but never end the turn', () => {
 test('human prompt vs tool result vs meta', () => {
   assert.equal(parseLine(U(T, 'hello there')).kind, 'prompt');
   assert.equal(parseLine(U(T, 'hello there')).chars, 11);
-  assert.equal(parseLine(TR(T)), null);
+  assert.equal(parseLine(TR(T)).kind, 'results', 'a tool result is not a prompt; it only counts toward what fills the chat');
   assert.equal(parseLine(U(T, 'x', { meta: true })), null);
   assert.equal(parseLine(U(T, 'x', { side: true })), null);
   assert.equal(parseLine(U(T, 'x', { origin: { kind: 'task-notification' } })), null);

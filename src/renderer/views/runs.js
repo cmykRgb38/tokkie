@@ -101,7 +101,7 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
     const detail = el('div', { class: 'rdetail', hidden: !isOpen, onclick: (e) => e.stopPropagation() }, full, actions, optOut, msg);
     const card = el('div', { class: 'run openable', role: 'button', 'aria-expanded': String(isOpen), tabindex: '0', title: isOpen ? '' : 'Click to see the full prompt' },
       el('div', { class: 'row' }, el('span', { class: 'muted ptag' }, el('span', { class: 'pdot', 'data-p': isCodex ? 'codex' : 'claude', 'aria-hidden': 'true' }),
-        `${isCodex ? 'Codex' : 'Claude'} · ${when === 'clock' ? fmtTime(r.start) : `${fmtDur((s.now - r.start) / 1000)} ago`}${where ? ` · ${where}` : ''}`), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
+        `${isCodex ? 'Codex' : 'Claude'} · ${when === 'clock' ? fmtTime(r.start) : `${fmtDur((s.now - r.start) / 1000)} ago`}${where ? ` · ${where}` : ''}`), (isCodex && !(r.duration > 0) ? el('span', { class: 'val', text: 'time not recorded', title: 'Codex didn’t save how long this run took (some older Codex runs only kept their start).' }) : el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` }))),
       r.preview && !isOpen ? el('div', { class: 'rprompt', text: `“${r.preview}${r.chars > 140 ? '…' : ''}”` }) : null,
       el('div', { class: 'rtok', text: (tok || 'tokens not recorded') + (r.usd != null ? ` · $${r.usd.toFixed(2)}` : ''), title: r.estimatedTokens ? 'Codex only keeps a running total per chat: this run’s share is estimated from how long it ran.' : '' }),
       chips.length ? el('div', { class: 'chips2' }, el('span', { class: 'muted', text: 'estimate:' }), chips) : null,   // only runs you estimated say how it went

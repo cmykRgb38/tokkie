@@ -125,7 +125,11 @@ export function planView(root, api) {
       : null;
     // The chat it would go into: a long one (or one whose cache expired) can multiply the cost — say so, with the fix.
     const adv = chatAdvice(r.chat, r.now, { prompt: true });
-    const chatBox = adv ? el('div', { class: 'verdict', 'data-k': adv.tone }, el('span', { class: 'dot', 'data-k': adv.tone }), el('h3', { text: adv.title }), el('p', { text: adv.body })) : null;
+    // ...and what fills it, biggest first, so you know what to stop pasting or reading in full
+    const bloatList = adv && adv.parts.length ? el('div', { class: 'bloat', title: 'Since this chat was last compacted. Estimated from the transcript (about 4 characters a token).' },
+      el('div', { class: 'bloat-h', text: 'What fills this chat' }),
+      ...adv.parts.map((p) => el('div', { class: 'bloat-row' }, el('span', { class: 'bloat-l', text: p.label + (p.count > 1 ? ` ×${p.count}` : '') }), el('span', { class: 'bloat-v', text: `~${fmtTokens(p.tokens)}` })))) : null;
+    const chatBox = adv ? el('div', { class: 'verdict', 'data-k': adv.tone }, el('span', { class: 'dot', 'data-k': adv.tone }), el('h3', { text: adv.title }), el('p', { text: adv.partsText ? adv.body.replace(adv.partsText, '') : adv.body }), bloatList) : null;
     out.replaceChildren(
       ...(fitBox ? [fitBox] : []),
       el('div', { class: 'verdict', 'data-k': k }, el('span', { class: 'dot', 'data-k': k }), el('h3', { text: title }), el('p', { text: msg }), tl),

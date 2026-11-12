@@ -17,7 +17,7 @@ const PROVIDERS = [
     id: 'claude', name: 'Claude',
     transcripts: (o) => transcriptRoots(o),
     parse: parseLine,
-    hint: /"type"\s*:\s*"(?:assistant|user)"/,            // cheap pre-filter: only these lines can become events
+    hint: /"type"\s*:\s*"(?:assistant|user)"|"compact_boundary"/,            // cheap pre-filter: only these lines can become events
   },
 ];
 

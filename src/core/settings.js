@@ -19,6 +19,7 @@ const DEFAULTS = Object.freeze({
   samples: [],               // persisted finished turns (survive log rotation)
   theme: 'auto',            // auto | light | dark
   notifyDone: true,
+  notifyReset: true,          // a quiet alert when a limit you'd used a lot of starts over
   alertBubble: true,         // pet reacts (hop + blinking !/?) when Claude finishes / may need you
   speechBubble: true,        // ...and also show the "Claude is done — your turn" speech bubble
   manualReadings: [],        // percentages you typed in from Claude's Usage page: [{id, t, pct}] — exact anchors + calibration points
