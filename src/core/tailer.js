@@ -2,9 +2,7 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const { listTranscripts } = require('./paths');
-const { parseLine } = require('./parser');
-
-const LINE_HINT = /"type"\s*:\s*"(?:assistant|user)"/;
+const { providerById } = require('./providers');
 const CHUNK = 1024 * 1024;
 
 /**
@@ -14,13 +12,13 @@ const CHUNK = 1024 * 1024;
 class Tailer {
   /**
    * @param {object} o
-   * @param {() => Array<{dir:string,source:string}>} o.roots
+   * @param {() => Array<{dir:string,source:string,provider?:string}>} o.roots  provider defaults to 'claude'
    * @param {(events:object[]) => void} o.onEvents
    * @param {number} [o.lookbackMs] files older than this are skipped on the initial scan
    */
   constructor({ roots, onEvents, lookbackMs = 8 * 86400e3, pollMs = 1500, discoverMs = 5000, now = Date.now }) {
     Object.assign(this, { roots, onEvents, lookbackMs, pollMs, discoverMs, now });
-    this.files = new Map(); // path -> {offset, rest:Buffer, source}
+    this.files = new Map(); // path -> {offset, rest:Buffer, source, provider}
     this.timer = null;
     this.lastDiscover = 0;
     this.busy = false;
@@ -30,8 +28,8 @@ class Tailer {
   _discover() {
     this.lastDiscover = this.now();
     const fresh = [];
-    for (const { dir, source } of this.roots()) {
-      for (const p of listTranscripts(dir)) if (!this.files.has(p)) fresh.push({ p, source });
+    for (const { dir, source, provider = 'claude' } of this.roots()) {
+      for (const p of listTranscripts(dir)) if (!this.files.has(p)) fresh.push({ p, source, provider });
     }
     return fresh;
   }
@@ -54,10 +52,11 @@ class Tailer {
         const cut = data.lastIndexOf(10);
         if (cut === -1) { state.rest = Buffer.from(data); continue; }
         state.rest = Buffer.from(data.subarray(cut + 1));
+        const prov = providerById(state.provider) || providerById('claude');
         for (const line of data.subarray(0, cut).toString('utf8').split('\n')) {
-          if (!line || !LINE_HINT.test(line)) continue;
-          const ev = parseLine(line);
-          if (ev) { ev.source = state.source; if (ev.kind === 'prompt') ev.file = p; events.push(ev); }
+          if (!line || (prov.hint && !prov.hint.test(line))) continue;
+          const ev = prov.parse(line);
+          if (ev) { ev.source = state.source; ev.provider = prov.id; if (ev.kind === 'prompt') ev.file = p; events.push(ev); }
         }
       }
       return events;
@@ -68,10 +67,10 @@ class Tailer {
   async initialScan() {
     const cutoff = this.now() - this.lookbackMs;
     const all = [];
-    for (const { p, source } of this._discover()) {
+    for (const { p, source, provider } of this._discover()) {
       let st;
       try { st = await fsp.stat(p); } catch { continue; }
-      const state = { offset: 0, rest: Buffer.alloc(0), source };
+      const state = { offset: 0, rest: Buffer.alloc(0), source, provider };
       this.files.set(p, state);
       if (st.mtimeMs < cutoff) { state.offset = st.size; continue; } // too old: follow from EOF only
       const evs = await this._read(p, state, true);
@@ -88,7 +87,7 @@ class Tailer {
     try {
       const out = [];
       if (this.now() - this.lastDiscover >= this.discoverMs) {
-        for (const { p, source } of this._discover()) this.files.set(p, { offset: 0, rest: Buffer.alloc(0), source });
+        for (const { p, source, provider } of this._discover()) this.files.set(p, { offset: 0, rest: Buffer.alloc(0), source, provider });
       }
       for (const [p, state] of this.files) {
         let st;

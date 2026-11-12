@@ -16,7 +16,7 @@ const { Settings } = require('../core/settings');
 const { Engine } = require('../core/engine');
 const setup = require('../core/setup');
 const legacy = require('../core/legacy');
-const { transcriptRoots } = require('../core/paths');
+const { transcriptSources } = require('../core/providers');
 const Monster = require('../core/monster');
 const { trayBitmap } = require('./tray-icon');
 
@@ -370,7 +370,7 @@ function setupIpc() {
   ipcMain.handle('setup:status', () => setup.bridgeStatus());
   ipcMain.handle('setup:connect', () => { const r = setup.installBridge({ bridgeSource: BRIDGE_SOURCE }); hookCache.at = 0; send('state', snapshot()); return r; });
   ipcMain.handle('setup:disconnect', () => { const r = setup.uninstallBridge(); setup.uninstall(); hookCache.at = 0; send('state', snapshot()); return r; });
-  ipcMain.handle('sources', () => transcriptRoots().map((r) => ({ dir: r.dir, source: r.source })));
+  ipcMain.handle('sources', () => transcriptSources().map((r) => ({ dir: r.dir, source: r.source, provider: r.provider })));
 
   // Layout: the renderer owns sizes; we anchor the pet so it never jumps when the panel opens/closes.
   const okRect = (r) => r && [r.x, r.y, r.w, r.h].every(Number.isFinite);

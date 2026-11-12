@@ -54,7 +54,7 @@ class Store {
       // How big the conversation already is when you hit Enter (every step re-reads it), and whether its cache went cold.
       const c = this.cacheBySession.get(ev.sessionId);
       const ctx0 = c ? c.ctx : 0, cold = !c || ev.ts - c.at > (c.ttl === '5m' ? 5 * 60e3 : 60 * 60e3);
-      this.sessions.set(ev.sessionId, { ctx0, cold, start: ev.ts, chars: ev.chars, hint: ev.hint || 1, lastTs: ev.ts, tokens: 0, output: 0, prev: this.lastDur.get(ev.sessionId) || 0, preview: ev.preview || '', find: ev.find || '', cwd: ev.cwd || '', source: ev.source || '', file: ev.file || '', uuid: ev.uuid || '' });
+      this.sessions.set(ev.sessionId, { ctx0, cold, provider: ev.provider || 'claude', start: ev.ts, chars: ev.chars, hint: ev.hint || 1, lastTs: ev.ts, tokens: 0, output: 0, prev: this.lastDur.get(ev.sessionId) || 0, preview: ev.preview || '', find: ev.find || '', cwd: ev.cwd || '', source: ev.source || '', file: ev.file || '', uuid: ev.uuid || '' });
     } else if (ev.kind === 'interrupt') {
       this.sessions.delete(ev.sessionId);
     } else if (ev.kind === 'usage') {
@@ -65,7 +65,7 @@ class Store {
       const prev = this.msgs.get(ev.id);
       // Streaming rewrites: keep whichever copy has seen more output.
       if (!prev || ev.output >= prev.output) {
-        this.msgs.set(ev.id, { ts: ev.ts, input: ev.input, output: ev.output, cacheWrite: ev.cacheWrite, cacheRead: ev.cacheRead, sessionId: ev.sessionId, source: ev.source });
+        this.msgs.set(ev.id, { ts: ev.ts, input: ev.input, output: ev.output, cacheWrite: ev.cacheWrite, cacheRead: ev.cacheRead, sessionId: ev.sessionId, source: ev.source, provider: ev.provider || 'claude' });
       }
       if (turn && ev.ts >= turn.start) {
         turn.lastTs = Math.max(turn.lastTs, ev.ts);
@@ -87,7 +87,7 @@ class Store {
     for (const m of (turn.msgs || new Map()).values()) { tokens += m.w; output += m.out; head += m.h; cacheRead += m.cr || 0; cacheWrite += m.cw || 0; if (!m.side) steps++; }
     this.lastDur.set(sessionId, ms / 1000);
     if (endTs >= this.recent.end) this.recent = { dur: ms / 1000, end: endTs };
-    const sample = { sessionId, start: turn.start, chars: turn.chars, hint: turn.hint, prev: turn.prev, duration: ms / 1000, tokens, headline: head, output, ctx0: turn.ctx0 || 0, cold: !!turn.cold, steps, cacheRead, cacheWrite, preview: turn.preview || '', find: turn.find || '', cwd: turn.cwd || '', source: turn.source || '', file: turn.file || '', uuid: turn.uuid || '' };
+    const sample = { sessionId, provider: turn.provider || 'claude', start: turn.start, chars: turn.chars, hint: turn.hint, prev: turn.prev, duration: ms / 1000, tokens, headline: head, output, ctx0: turn.ctx0 || 0, cold: !!turn.cold, steps, cacheRead, cacheWrite, preview: turn.preview || '', find: turn.find || '', cwd: turn.cwd || '', source: turn.source || '', file: turn.file || '', uuid: turn.uuid || '' };
     if (this.addSample(sample) && this.onSample) this.onSample(sample);
   }
 

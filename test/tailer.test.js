@@ -69,3 +69,17 @@ test('Cowork discovery finds .claude/projects and skips audit logs & heavy dirs'
   assert.ok(Array.isArray(roots));
   fs.rmSync(dir, { recursive: true });
 });
+
+test('every event is tagged with the AI it came from (Claude unless the source says otherwise)', async () => {
+  const fs = require('fs'), os = require('os'), path = require('path');
+  const { Tailer } = require('../src/core/tailer');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tokkie-prov-'));
+  const ts = new Date().toISOString();
+  fs.writeFileSync(path.join(dir, 's.jsonl'), JSON.stringify({ type: 'user', timestamp: ts, sessionId: 's', message: { role: 'user', content: 'hello there' } }) + '\n');
+  const t = new Tailer({ roots: () => [{ dir, source: 'code' }], onEvents: () => {} });
+  const evs = await t.initialScan();
+  assert.equal(evs.length, 1); assert.equal(evs[0].provider, 'claude'); assert.equal(evs[0].kind, 'prompt');
+  const { transcriptSources, providerById } = require('../src/core/providers');
+  assert.ok(providerById('claude')); assert.equal(providerById('nope'), null);
+  assert.ok(transcriptSources({ home: dir, env: {} }, () => false).length === 0, 'a provider switched off contributes nothing');
+});

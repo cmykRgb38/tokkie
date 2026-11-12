@@ -32,6 +32,7 @@ const DEFAULTS = Object.freeze({
   optimizerModel: 'haiku',   // haiku | sonnet | opus — what the prompt optimizer asks
   optimizerMode: 'clearer',  // clearer (adds what Claude would guess) | shorter (same meaning, fewest tokens)
   optimizeButton: true,      // ✨ Optimize on the Claude bar (rewrites what you typed, in place)
+  providers: { claude: true, codex: true },   // which AIs to track (Settings → Sources)
   optimizeHotkey: 'CommandOrControl+Alt+Shift+O',   // copy a prompt, press this: the better version replaces it on the clipboard
   strip: false,              // the floating strip: the Claude bar's items for Chat / Cowork, dragged wherever you like
   stripPos: { x: null, y: null },

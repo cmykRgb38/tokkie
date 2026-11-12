@@ -5,7 +5,8 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const { Store } = require('./store');
 const { Tailer } = require('./tailer');
-const { transcriptRoots, tokkieHome } = require('./paths');
+const { tokkieHome } = require('./paths');
+const { transcriptSources } = require('./providers');
 const { readLimits, compute } = require('./limits');
 const { predict, planVerdict, finishTimestamp, PREV_WINDOW_MS } = require('./predict');
 const { estimateTokens } = require('./tokens');
@@ -68,7 +69,8 @@ class Engine extends EventEmitter {
     this.limitsMtime = 0; this.limits = null;
     this.desktopMtime = -1; this.desktop = null; this.desktopK = {}; this.calibAt = 0; this.pending = [];   // pending = recent estimates, matched to the run they predicted
     this.loaded = false;
-    this.tailer = new Tailer({ roots: roots || (() => transcriptRoots({ env, home })), onEvents: (evs) => this._onLive(evs), now });
+    // every AI switched on in Settings → Sources (all by default)
+    this.tailer = new Tailer({ roots: roots || (() => transcriptSources({ env, home }, (id) => (settings.get('providers') || {})[id] !== false)), onEvents: (evs) => this._onLive(evs), now });
     this.dirty = true;
   }
 
