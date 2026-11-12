@@ -173,6 +173,28 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
       ok('choosing Grumpy changes the pet and is saved', (await mood(`return p.persona`)) === 'grumpy' && settings.get('personality') === 'grumpy'
         && (await js(`document.querySelector('#view-pets [data-v="grumpy"]').getAttribute('aria-checked')`)) === 'true');
       await js(`document.querySelector('#view-pets [aria-label="Personality"] button[data-v="cheerful"]').click()`); await wait(300);
+      // Pets → Badges: every badge listed, earned ones first, the count matches
+      await js(`document.querySelector('#view-pets .subnav [data-v="badges"]').click()`); await wait(700);
+      const bd = await js(`(()=>{const all=[...document.querySelectorAll('#view-pets .badge')]; return {n:all.length, earned:all.filter(b=>!b.classList.contains('locked')).length, firstLocked:all.findIndex(b=>b.classList.contains('locked')), head:document.querySelector('#view-pets .badges').closest('.stack').querySelector('.row .muted').textContent, visible:!document.querySelector('#view-pets .badges').closest('[hidden]')};})()`);
+      ok('Pets → Badges lists every badge, earned ones first, with the right count', bd.visible && bd.n >= 20 && bd.head === `${bd.earned} of ${bd.n} earned` && (bd.firstLocked === -1 || bd.firstLocked === bd.earned), JSON.stringify(bd));
+      await js(`document.querySelector('#view-pets .subnav [data-v="pet"]').click()`); await wait(150);
+      // History → weekly recap card: seven days, three numbers, and a picture of it on the clipboard
+      await js(`document.getElementById('tab-history').click()`); await wait(900);
+      const rc = await js(`(()=>{const c=document.querySelector('#view-history .recap'); return c && {days:c.querySelectorAll('.rc-day').length, stats:c.querySelectorAll('.rc-stat').length, title:c.querySelector('.rc-title').textContent, later:c.querySelector('[aria-label="Later week"]').disabled, top:c.getBoundingClientRect().top < innerHeight};})()`);
+      ok('History opens with this week’s recap (7 days, runs / tokens / time)', rc && rc.days === 7 && rc.stats === 3 && rc.title === 'This week' && rc.later && rc.top, JSON.stringify(rc));
+      const earlier = await js(`(()=>{const b=document.querySelector('#view-history [aria-label="Earlier week"]'); if (b.disabled) return 'none'; b.click(); return 'clicked';})()`); await wait(500);
+      if (earlier === 'clicked') {
+        const t2 = await js(`document.querySelector('#view-history .rc-title').textContent`);
+        ok('‹ goes back a week', t2 === 'Last week', t2);
+        await js(`document.querySelector('#view-history [aria-label="Later week"]').click()`); await wait(400);
+      }
+      clipboard.clear();
+      await js(`document.querySelector('#view-history .rc-copy').click()`); await wait(900);
+      const items = await clipboard.read().catch(() => []);
+      const png = items.find((x) => x.types.includes('image/png'));
+      const size = png ? (await png.getType('image/png')).size : 0;
+      ok('“Copy as image” puts a picture of the recap on the clipboard', size > 5000, `${size} bytes`);
+      await js(`document.getElementById('tab-pets').click()`); await wait(200);
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}))`); await wait(500);
 
       // The shortcut's whole path (minus the OS key delivery): clipboard → estimate → panel opens on the Estimate tab with a verdict.
@@ -195,7 +217,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
       ok('bubble fits inside the window', b.top >= 0 && b.left >= 0 && b.right <= b.vw, `${Math.round(b.left)}..${Math.round(b.right)} of ${b.vw}`);
       ok('pet reacts to the alert', (await mood(`return p.mood`)) === 'alert');
       await js(`document.getElementById('bubble').click()`); await wait(400); b = await bub();
-      ok('clicking the bubble dismisses it', b.hidden === true);
+      ok('clicking the bubble dismisses it (a queued badge note may follow)', b.hidden === true || b.kind === 'badge', JSON.stringify(b));
       await js(`window.__tokkie.forceAlert('ask')`); await wait(400); b = await bub();
       ok('"may need approval" alert uses the amber variant', !b.hidden && b.kind === 'ask' && (await mood(`return p.mood`)) === 'ask');
       await js(`document.getElementById('bubble').click()`); await wait(300);

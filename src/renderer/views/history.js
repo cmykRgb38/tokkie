@@ -1,5 +1,94 @@
-import { el, fmtTokens, fmtDur } from '../util.js';
+import { el, icon, fmtTokens, fmtDur } from '../util.js';
 import { runCards } from './runs.js';
+import { Pet } from '../pet.js';
+
+const shortDate = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short' });
+const hourLabel = (h) => { const f = (x) => new Date(2000, 0, 1, x % 24).toLocaleTimeString([], { hour: 'numeric' }); return `${f(h)}–${f(h + 1)}`; };
+const vsText = (v) => (v == null ? '' : v === 0 ? '= same' : `${v > 0 ? '▲' : '▼'} ${Math.abs(v)}%`);
+
+/**
+ * The weekly recap card: a week of runs at a glance, compared with the week before, with ‹ › to look back.
+ * No prompts and no folder names on it, so "Copy as image" is safe to paste to friends.
+ */
+function recapCard(api) {
+  let offset = 0, R = null, S = null, busy = false, key = '';
+  const title = el('div', { class: 'rc-title' }), sub = el('div', { class: 'rc-sub' });
+  const prev = el('button', { class: 'btn sm quiet rc-nav', type: 'button', 'aria-label': 'Earlier week', text: '‹', onclick: () => go(offset + 1) });
+  const next = el('button', { class: 'btn sm quiet rc-nav', type: 'button', 'aria-label': 'Later week', text: '›', onclick: () => go(offset - 1) });
+  const petCv = el('canvas', { class: 'rc-pet', 'aria-hidden': 'true' }); const pet = new Pet(petCv, { scale: 2, spriteOnly: true }); let petKey = '';
+  const stats = el('div', { class: 'rc-stats' });
+  const chart = el('div', { class: 'rc-chart', role: 'img' });
+  const facts = el('ul', { class: 'rc-facts' });
+  const brand = el('div', { class: 'rc-brand', text: 'Tokkie' });
+  const copy = el('button', { class: 'btn sm rc-copy', type: 'button' }, icon('clip'), el('span', { text: 'Copy as image' }));
+  const msg = el('span', { class: 'muted rc-msg', 'aria-live': 'polite' });
+  const card = el('section', { class: 'recap', 'aria-label': 'Weekly recap' },
+    el('div', { class: 'rc-head' }, petCv, el('div', { class: 'rc-titles' }, title, sub), el('div', { class: 'rc-navs' }, prev, next)),
+    stats, chart, facts, el('div', { class: 'rc-foot' }, brand, msg, copy));
+
+  async function go(o) { offset = Math.max(0, Math.min(12, o)); await load(); }
+  async function load() {
+    if (busy) return; busy = true;
+    try { R = await api.recap(offset); } finally { busy = false; }
+    draw();
+  }
+  copy.addEventListener('click', async () => {
+    card.scrollIntoView({ block: 'nearest' });
+    card.classList.add('shot');                         // the picture leaves out the buttons
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const b = card.getBoundingClientRect();
+    let ok = false;
+    try { ok = !!(await api.copyImage({ x: b.left, y: b.top, width: b.width, height: b.height })).ok; } finally { card.classList.remove('shot'); }
+    msg.textContent = ok ? 'Copied: paste it anywhere' : 'Couldn’t copy the picture';
+    setTimeout(() => { msg.textContent = ''; }, 4000);
+  });
+
+  const stat = (value, label, vs) => el('div', { class: 'rc-stat' }, el('b', { text: value }), el('span', { text: label }),
+    vs ? el('i', { 'data-up': String(!vs.startsWith('▼')), text: vs }) : null);
+
+  function draw() {
+    if (!R) return;
+    const thisWeek = R.offset === 0;
+    title.textContent = thisWeek ? 'This week' : R.offset === 1 ? 'Last week' : `Week of ${shortDate(R.from)}`;
+    sub.textContent = `${shortDate(R.from)} – ${shortDate(R.to - 1)}${thisWeek ? ' · so far' : ''}`;
+    prev.disabled = !R.hasEarlier || offset >= 12; next.disabled = offset === 0;
+    const hrs = R.seconds >= 3600 ? `${(R.seconds / 3600).toFixed(1)} h` : R.seconds ? fmtDur(R.seconds) : '0';
+    stats.replaceChildren(stat(String(R.runs), R.runs === 1 ? 'run' : 'runs', vsText(R.vs.runs)), stat(fmtTokens(R.tokens), 'tokens', vsText(R.vs.tokens)), stat(hrs, 'AI working', vsText(R.vs.seconds)));
+    for (const i of stats.querySelectorAll('i')) i.title = thisWeek ? 'So far, compared with the whole week before' : 'Compared with the week before';
+    // seven little bars, Monday to Sunday, tallest = the busiest day
+    const max = Math.max(1, ...R.days.map((d) => d.tokens));
+    chart.setAttribute('aria-label', R.days.map((d) => `${new Date(d.day).toLocaleDateString([], { weekday: 'long' })}: ${d.runs} runs`).join(', '));
+    chart.replaceChildren(...R.days.map((d) => el('div', { class: 'rc-day' + (d.future ? ' future' : '') + (R.busiest && d.day === R.busiest.day ? ' top' : ''), title: `${d.runs} runs · ${fmtTokens(d.tokens)} tokens` },
+      el('div', { class: 'rc-col' }, el('i', { style: `--h:${d.tokens ? Math.max(0.06, d.tokens / max) : 0}` })),
+      el('span', { text: new Date(d.day).toLocaleDateString([], { weekday: 'narrow' }) }))));
+    const items = [];
+    if (!R.runs) items.push(thisWeek ? 'Nothing yet this week.' : 'No runs that week.');
+    if (R.busiest) items.push(`Busiest day: ${new Date(R.busiest.day).toLocaleDateString([], { weekday: 'long' })} (${R.busiest.runs} runs, ${fmtTokens(R.busiest.tokens)} tokens)`);
+    if (R.longest) items.push(`Longest run: ${fmtDur(R.longest.duration)}${R.codex ? ` with ${R.longest.provider === 'codex' ? 'Codex' : 'Claude'}` : ''}`);
+    if (R.peakHour != null && R.runs >= 3) items.push(`Most active: ${hourLabel(R.peakHour)}`);
+    if (R.codex && R.claude) items.push(`Claude ${R.claude} runs · Codex ${R.codex} runs`);
+    if (R.usd != null) items.push(`Claude Code spend: $${R.usd.toFixed(2)}`);
+    if (R.streak >= 2) items.push(`🔥 ${R.streak}-day streak${thisWeek ? '' : ' at the end of the week'}`);
+    if (R.badges.length) items.push(`New badge${R.badges.length > 1 ? 's' : ''}: ${R.badges.map((b) => b.name).join(', ')}`);
+    facts.replaceChildren(...items.map((t) => el('li', { text: t })));
+    drawPet();
+  }
+  function drawPet() {
+    if (!S) return;
+    const seed = S.settings.monsters.active || S.signature, evo = S.evolution || { stage: 2, fat: 0 };
+    const shown = (S.settings.evolution && S.settings.evolution.display) || 0, st = shown && shown < evo.stage ? shown : evo.stage;
+    const k = `${seed}:${st}:${evo.fat}`; if (k === petKey) return; petKey = k;
+    pet.setSeed(seed); pet.setForm(st, st === evo.stage ? evo.fat : 0);
+  }
+  return {
+    node: card,
+    update(s) {
+      S = s; drawPet();
+      const k = `${s.samples}:${new Date().toDateString()}:${s.badges ? s.badges.earned : 0}`;
+      if (k !== key) { key = k; load(); }
+    },
+  };
+}
 
 const dayName = (t, now) => {
   const d = new Date(t), today = new Date(now); today.setHours(0, 0, 0, 0);
@@ -20,7 +109,8 @@ export function historyView(root, api) {
     onclick: () => { who = k; for (const b of whoBtns) b.setAttribute('aria-pressed', String(b.dataset.k === who)); draw(); } },
     k === 'all' ? null : el('span', { class: 'pdot', 'data-p': k, 'aria-hidden': 'true' }), l));
   const whoSeg = el('div', { class: 'seg who', role: 'group', 'aria-label': 'Which AI', hidden: true }, ...whoBtns);
-  root.append(el('div', { class: 'stack' }, search, whoSeg, summary, list));
+  const recap = recapCard(api);
+  root.append(el('div', { class: 'stack' }, recap.node, search, whoSeg, summary, list));
 
   let data = null, S = null, loading = false, loadedAt = 0, lastCount = -1, q = '';
   const openDays = new Set();
@@ -65,6 +155,7 @@ export function historyView(root, api) {
   return {
     update(s) {
       S = s;
+      if (!root.hidden) recap.update(s);
       // reload when a run finished (or every few minutes for the "x ago" bits); otherwise nothing to do
       if (!root.hidden && (s.samples !== lastCount || Date.now() - loadedAt > 5 * 60e3)) { lastCount = s.samples; load(); }
     },

@@ -79,6 +79,29 @@ export function petsView(root, api) {
     row('Drag / right-click', 'Drag to move it; right-click opens or closes this panel.'),
     temperNote);
   const undoNote = el('div', { class: 'note', hidden: true });
+  // Badges: milestones from how you use Claude and Codex, kept for good once earned
+  const badgeHead = el('div', { class: 'row' }, el('span', { class: 'label', text: 'Badges' }), el('span', { class: 'muted' }));
+  const badgeStreak = el('p', { class: 'muted', style: 'margin-top:-8px' });
+  const badgeGrid = el('div', { class: 'badges' });
+  let badgeKey = '', badgeBusy = false;
+  const fmtDay = (t) => new Date(t).toLocaleDateString([], { day: 'numeric', month: 'short', year: new Date(t).getFullYear() === new Date().getFullYear() ? undefined : 'numeric' });
+  async function loadBadges() {
+    if (badgeBusy) return; badgeBusy = true;
+    let r; try { r = await api.badges(); } finally { badgeBusy = false; }
+    if (!r) return;
+    const got = r.list.filter((b) => b.at).sort((a, b) => (a.early - b.early) || b.at - a.at), todo = r.list.filter((b) => !b.at);
+    badgeHead.lastChild.textContent = `${got.length} of ${r.list.length} earned`;
+    badgeStreak.textContent = r.streak ? `🔥 ${r.streak}-day streak${r.bestStreak > r.streak ? ` · best ${r.bestStreak}` : ''}. Use Claude or Codex once a day to keep it going.`
+      : r.bestStreak ? `Best streak: ${r.bestStreak} days. Use Claude or Codex today to start a new one.` : 'Use Claude or Codex on a few days in a row to start a streak.';
+    badgeGrid.replaceChildren(...[...got, ...todo].map((b) => {
+      const p = b.progress, u = b.unit ? ` ${b.unit}` : '';
+      const sub = b.at ? (b.early ? 'Already yours when badges arrived' : `Earned ${fmtDay(b.at)}`) : p && p[1] > 1 ? `${p[0]}${u} of ${p[1]}${u}${b.today ? ' today' : b.unit ? ' (your longest so far)' : ''}` : 'Not yet';
+      return el('div', { class: 'badge' + (b.at ? '' : ' locked'), role: 'listitem', 'aria-label': `${b.name}: ${b.at ? 'earned' : 'not earned yet'}. ${b.how}` },
+        el('span', { class: 'bicon', 'aria-hidden': 'true', text: b.icon }),
+        el('div', { class: 'btext' }, el('b', { text: b.name }), el('span', { class: 'bhow', text: b.how }), el('span', { class: 'bsub', text: sub }),
+          !b.at && p && p[1] > 1 ? el('div', { class: 'bar' }, el('i', { style: `--p:${Math.min(1, p[0] / p[1])}` })) : null));
+    }));
+  }
   const luckyMsg = el('p', { class: 'muted', hidden: true, style: 'color:var(--good)' });
   const sections = {
     pet: el('div', { class: 'stack' }, evoCard,
@@ -91,14 +114,22 @@ export function petsView(root, api) {
     collection: el('div', { class: 'stack' }, el('div', { class: 'row', style: 'gap:8px' }, reroll, save), luckyMsg, note, undoNote, slotsBox, count, bringBack),
     album: el('div', { class: 'stack' }, albumHead, albumGrid, albumNote, el('div', { class: 'divider' }),
       el('div', { class: 'label', text: 'Secret code' }), el('div', { class: 'row', style: 'gap:8px' }, codeIn, codeBtn), codeMsg),
+    badges: el('div', { class: 'stack' }, badgeHead, badgeStreak, el('div', { role: 'list', 'aria-label': 'Badges' }, badgeGrid),
+      el('p', { class: 'muted', text: 'Worked out from your runs (times, sizes and counts, never what you wrote). Once earned, a badge stays.' })),
   };
   let section = 'pet';
-  const subnav = el('div', { class: 'seg subnav', role: 'tablist', 'aria-label': 'Pets sections' }, [['pet', 'My pet'], ['collection', 'Collection'], ['album', 'Album']].map(([k, l]) =>
+  const subnav = el('div', { class: 'seg subnav', role: 'tablist', 'aria-label': 'Pets sections' }, [['pet', 'My pet'], ['collection', 'Collection'], ['album', 'Album'], ['badges', 'Badges']].map(([k, l]) =>
     el('button', { type: 'button', role: 'tab', 'data-v': k, 'aria-pressed': String(k === section), text: l, onclick: () => showSection(k) })));
   function showSection(k) {
     section = k;
     for (const [name, node] of Object.entries(sections)) node.hidden = name !== k;
     subnav.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === k)));
+    if (k === 'badges') { badgeKey = ''; if (S) checkBadges(S); }
+  }
+  function checkBadges(s) {
+    if (section !== 'badges' || root.hidden) return;
+    const k = `${s.samples}:${s.badges ? s.badges.earned : 0}:${s.badges ? s.badges.streak : 0}`;
+    if (k !== badgeKey) { badgeKey = k; loadBadges(); }
   }
   root.append(el('div', { class: 'stack' }, subnav, ...Object.values(sections)));
   showSection('pet');
@@ -176,6 +207,7 @@ export function petsView(root, api) {
           { cheerful: 'Sometimes dodges a rushing pointer.', playful: 'Usually dodges a rushing pointer and giggles at pokes.', sleepy: 'Rarely bothers to dodge.', grumpy: 'Never dodges, just huffs.', shy: 'Dodges a lot, and hides in its box instead of biting.' }[id] || ''} ${
           id === 'shy' ? `Hides after ${P.pokes} quick pokes.` : `Snaps after ${P.pokes} quick pokes.`}`; }
       S = s; const { active, saved } = s.settings.monsters;
+      checkBadges(s);
       const evo = s.evolution || { stage: 2, fat: 0, name: 'Junior', eaten: 0, progress: 0, next: null, nextName: null };
       const pv = s.settings.personality || 'cheerful';
       persona.querySelectorAll('button').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.v === pv)));

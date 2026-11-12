@@ -23,7 +23,7 @@ let evoInit = false, evoBubbleUntil = 0, evoBubble = null;
 const BUBBLE_ZONE = 44;
 const TUCK = 26;                              // Dock-above: how far the pet's transparent headroom slides under the card (matches styles.css)                       // headroom above the pet reserved for the attention bubble (matches #stage padding-top)
 let acked = { doneEnd: null, ask: null }, forced = null;
-let optBubble = null;
+let optBubble = null, badgeBubble = null;   // badge news is the least urgent bubble: anything else goes first
 let booted = false, layout = 'dock', place = 'below', dockH = 0, pillsH = 30, dockKey = '', warned = null, warnBubble = null, fitAlert = null, lastNextFit = 'ok';
 let S = null, mode = 'collapsed', tab = 'usage', prevLast5h = null, lastEnd = null, doneUntil = 0, bubble = null, welcomed = false;
 
@@ -50,6 +50,9 @@ const api = {
   copyText: (t) => bridge.ui.copyText(t),
   promptText: (sid, uuid) => bridge.ui.promptText(sid, uuid),
   history: () => bridge.ui.history(),
+  badges: () => bridge.ui.badges(),
+  recap: (offset) => bridge.ui.recap(offset),
+  copyImage: (rect) => bridge.ui.copyImage(rect),
   redeem: (code) => bridge.ui.redeem(code),
   optimize: (text) => bridge.ui.optimize(text),
   platform: () => (S ? S.platform : ''),
@@ -460,6 +463,8 @@ function render() {
     bubbleSub.textContent = wm && wm.pace && wm.pace.runOutAt ? `At this pace you run out ${fmtRunOut(wm.pace.runOutAt, S.now)}` : warnBubble.hit >= 90 ? 'Nearly out — save it for what matters' : 'Three quarters gone';
   } else if (Date.now() < evoBubbleUntil && evoBubble && mode !== 'expanded' && showBubble) {
     bubbleEl.hidden = false; bubbleEl.dataset.kind = 'evo'; bubbleTitle.textContent = '✨ ' + evoBubble.title; bubbleSub.textContent = evoBubble.sub;
+  } else if (badgeBubble && Date.now() < badgeBubble.until && mode !== 'expanded' && showBubble) {
+    bubbleEl.hidden = false; bubbleEl.dataset.kind = 'badge'; bubbleTitle.textContent = badgeBubble.title; bubbleSub.textContent = badgeBubble.sub;
   } else bubbleEl.hidden = true;
   pet.setMood(d.mood);
   renderPills(d.pillList);
@@ -495,11 +500,13 @@ function layoutPayload(initial) {
     if (place === 'above') { ch = MARGIN + dockH + GAP - TUCK + sh + MARGIN; cy = MARGIN + dockH + GAP - TUCK; }
   }
   const ew = PANEL_W + 2 * MARGIN, eh = MARGIN + BUBBLE_ZONE + sh + GAP + PANEL_H + MARGIN;
+  // panel above the pet: no bubble while it's open, so no bubble zone, and the pet's empty headroom tucks under the panel
+  const ahY = MARGIN + PANEL_H + GAP - TUCK, ah = ahY + sh + MARGIN;
   const rect = (w, y) => ({ x: Math.round((w - sw) / 2), y, w: sw, h: sh });
   return { initial: !!initial, mode,
     collapsed: { w: cw, h: ch, pet: { x: cx, y: cy, w: sw, h: sh } },
     below: { w: ew, h: eh, pet: rect(ew, MARGIN + BUBBLE_ZONE) },
-    above: { w: ew, h: eh, pet: rect(ew, MARGIN + PANEL_H + GAP + BUBBLE_ZONE) } };
+    above: { w: ew, h: ah, pet: rect(ew, ahY) } };
 }
 let layoutChain = Promise.resolve();
 /** Layout calls are serialised: rapid clicks must not apply placements out of order. */
@@ -512,6 +519,7 @@ function ackNow() { if (S) { acked = acknowledge(S, acked); forced = null; rende
 bubbleEl.addEventListener('click', async (e) => {
   e.stopPropagation();
   if (optBubble && Date.now() < optBubble.until) { const undo = optBubble.undo; optBubble = null; if (undo) await bridge.ui.undoOptimize(); render(); return; }
+  if (bubbleEl.dataset.kind === 'badge') { badgeBubble = null; setMode('expanded', 'pets'); return; }
   ackNow();
 });
 
@@ -633,6 +641,12 @@ bridge.onCommand((c) => {
     optBubble = { ...c, until: Date.now() + (c.kind === 'busy' ? 120000 : c.undo ? 12000 : 7000) };
     if (mode === 'expanded' && c.kind !== 'busy') views.plan.flash(`${c.title}${c.sub ? ` · ${c.sub}` : ''}`);
     pet.emote(c.kind === 'ok' ? 'love' : c.kind === 'warn' ? 'surprised' : 'work', c.kind === 'busy' ? 8000 : 1500);
+    render();
+  }
+  if (c.type === 'badge') {           // a badge just earned: the pet hops and says which
+    badgeBubble = { title: `${c.icon} Badge: ${c.name}`, sub: 'Click to see your badges', until: Date.now() + 12000 };
+    pet.emote('done', 2500);
+    if (mode === 'expanded' && tab === 'pets') views.pets.update(S);
     render();
   }
 });

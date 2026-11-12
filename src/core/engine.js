@@ -21,6 +21,8 @@ const { SpendLedger } = require('./spend');
 const { BridgeReader } = require('./bridge');
 const { paceOf } = require('./pace');
 const { RunLog } = require('./runs');
+const achievements = require('./achievements');
+const { recap, weekStart } = require('./recap');
 
 /**
  * Everything the UI needs, with no Electron dependency (so it is testable and reusable).
@@ -141,9 +143,14 @@ class Engine extends EventEmitter {
     this.tailer.start();
     this._codexLimitsLifecycle();
     let n = 0;
+    this._checkBadges(this.now());    // badges earned before this version are filled in quietly, the first time
     this.tick = setInterval(() => {
       this._readLimits(); this._readBridge(); this._readDesktop(); this._pollCodex(); this.store.prune();
-      if (++n % 15 === 0) this.snapshot();   // every ~30 s, even with nothing on screen: notices limits resetting
+      const now = this.now();
+      if (this.store.activeCount(now) + (this.codexOn() && this.codex.active ? 1 : 0) >= 3) this._flag('juggler', now);
+      if (++n % 15 === 0) {                  // every ~30 s, even with nothing on screen: notices limits resetting, badges, Monday's recap
+        this.snapshot(); this._checkBadges(now); this._maybeRecap(now);
+      }
     }, 2000);
     this.tick.unref?.();
     this.emit('change');
@@ -315,6 +322,7 @@ class Engine extends EventEmitter {
         || (p.fired && p.resetsAt && now >= p.resetsAt + 30e3 && (!r.resetsAt || r.resetsAt > now));   // already announced: the first reading that isn't the stale one starts the new window
       if (!p.fired && p.pct >= 50 && ((p.resetsAt && now >= p.resetsAt + 30e3) || newWindow)) {
         p.fired = true;                         // once per window, even while the old reading lingers
+        if (p.pct >= 95 && p.pct < 100) this._flag('closecall', now);   // nearly ran out, but made it
         this.emit('limit-reset', { provider: r.provider, label: r.label, was: p.pct });
       }
       if (newWindow) w[r.key] = { pct: r.pct, resetsAt: r.resetsAt || null, fired: false };
@@ -443,6 +451,7 @@ class Engine extends EventEmitter {
       bridge: { seen: !!br, live: !!fresh, since: this.ledger.state.bridgeSince || 0, todayUsd: this.ledger.since(startOfDay(now)) },
       runs: this.recentRuns(8, turns), k5: (this.settings.get('calib').five || {}).k || null,
       samples: this.store.samples.length,
+      badges: this._badgeCache ? { earned: Object.keys(this._badgeCache.earned).length, total: this._badgeCache.list.length, streak: this._badgeCache.streak } : null,
       files: this.tailer.files.size,
     };
   }
@@ -516,6 +525,58 @@ class Engine extends EventEmitter {
       g.usd = spent > 0 ? spent : g.runUsd > 0 ? g.runUsd : null;
     }
     return { now, days: out, keptDays: 90 };
+  }
+
+  /** The runs badges and the recap look at: every AI you track. */
+  _trackedSamples() { return this.codexOn() ? this.store.samples : this.claudeSamples(); }
+
+  /** A moment only seen live (3 runs at once, a close call): remembered once, for the badges. */
+  _flag(id, now = this.now()) {
+    const f = this.settings.get('badgeFlags') || {};
+    if (f[id]) return;
+    this.settings.set({ badgeFlags: { ...f, [id]: now } });
+    this._badgeKey = null;
+  }
+
+  /** Every badge, earned or not (with progress). New ones are kept and announced, except the first time (filled in quietly). */
+  badges(now = this.now()) {
+    const r = achievements.evaluate({ samples: this._trackedSamples(), stage: evolutionFor(this.eaten()).stage, album: this.settings.get('album') || {},
+      flags: this.settings.get('badgeFlags') || {}, earned: this.settings.get('badges') || {}, now });
+    if (r.newly.length) this.settings.set({ badges: r.earned });
+    if (!this.settings.get('badgesSeeded')) {
+      // the first look: badges that only know "now" (pet form, album) were really earned some time before
+      this.settings.set({ badgesSeeded: true, badgesEarly: r.newly.filter((id) => r.earned[id] >= now - 60e3) });
+    } else for (const id of r.newly) { const b = r.list.find((x) => x.id === id); this.emit('badge', { id, name: b.name, icon: b.icon, how: b.how }); }
+    const early = new Set(this.settings.get('badgesEarly') || []);
+    for (const b of r.list) if (early.has(b.id)) b.early = true;
+    this._badgeCache = r;
+    return r;
+  }
+
+  _checkBadges(now) {
+    const album = this.settings.get('album') || {};
+    const key = `${this.store.samples.length}:${this.codexOn()}:${evolutionFor(this.eaten()).stage}:${Object.keys(album).length}:${startOfDay(now)}`;
+    if (key === this._badgeKey) return;
+    this._badgeKey = key; this.badges(now);
+  }
+
+  /** One week's recap (0 = this week, 1 = last week…). */
+  recap(offset = 0, now = this.now()) {
+    const names = Object.fromEntries(achievements.BADGES.map((b) => [b.id, `${b.icon} ${b.name}`]));
+    return recap({ samples: this._trackedSamples(), now, offset: Math.max(0, Math.min(13, Math.floor(offset) || 0)), usd: (a, b) => this.ledger.between(a, b), earned: this._recapBadges(), names });
+  }
+  _recapBadges() {
+    const early = new Set(this.settings.get('badgesEarly') || []), all = this.settings.get('badges') || {};
+    return Object.fromEntries(Object.entries(all).filter(([id]) => !early.has(id)));
+  }
+
+  /** Monday from 9 am (until Wednesday): last week's recap, once, if there was anything in it. */
+  _maybeRecap(now) {
+    const wk = weekStart(now);
+    if ((this.settings.get('recapSent') || 0) >= wk || now < wk + 9 * 3600e3 || now > wk + 3 * 86400e3) return;
+    this.settings.set({ recapSent: wk });
+    const r = this.recap(1, now);
+    if (r.runs > 0) this.emit('recap', r);
   }
 
   /** The planner: tokens, duration range, share of the limit, and the go/no-go verdict. */

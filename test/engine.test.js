@@ -295,3 +295,42 @@ test('Codex estimate: from Codex runs only, and its share of the Codex limit onc
   assert.ok(r.fit.need.p50 > 0.5 && r.fit.need.p50 < 5, `≈2% of the week (${r.fit.need.p50})`);
   eng.codexLimits = null; eng.stop(); fs.rmSync(dir, { recursive: true });
 });
+
+test('badges: earlier ones are filled in quietly once, new ones are announced; close calls are remembered', () => {
+  const { dir, eng, settings } = rig();
+  const got = []; eng.on('badge', (b) => got.push(b.id));
+  const night = new Date(); night.setDate(night.getDate() - 2); night.setHours(2, 0, 0, 0);
+  eng.store.addSample({ sessionId: 's', provider: 'claude', start: night.getTime(), duration: 90, chars: 50, headline: 1000, tokens: 1000 });
+  eng.badges();
+  assert.deepEqual(got, [], 'the first look fills in quietly');
+  assert.ok(settings.get('badges').first && settings.get('badges').owl);
+  assert.equal(settings.get('badgesSeeded'), true);
+  eng.store.addSample({ sessionId: 's', provider: 'claude', start: Date.now() - 3 * 3600e3, duration: 31 * 60, chars: 50, headline: 1000, tokens: 1000 });
+  eng.badges();
+  assert.deepEqual(got, ['marathon']);
+  eng.badges(); assert.deepEqual(got, ['marathon'], 'never twice');
+  // a limit that reached 97% and reset: Close call
+  const t0 = Date.now(), R = (pct, resetsAt) => [{ key: 'claude:seven', provider: 'claude', label: 'Weekly limit', pct, resetsAt }];
+  eng._watchResets(R(97, t0 + 60e3), t0); eng._watchResets(R(97, t0 + 60e3), t0 + 120e3);
+  assert.ok(settings.get('badgeFlags').closecall);
+  eng.badges(); assert.ok(got.includes('closecall'));
+  // ...but not one that ran out
+  const { dir: d2, eng: e2, settings: s2 } = rig();
+  e2._watchResets(R(100, t0 + 60e3), t0); e2._watchResets(R(100, t0 + 60e3), t0 + 120e3);
+  assert.equal((s2.get('badgeFlags') || {}).closecall, undefined);
+  // the recap counts the same runs
+  const r = eng.recap(0);
+  assert.equal(r.days.length, 7);
+  assert.ok(r.runs >= 1 || new Date(night).getTime() < r.from);
+  fs.rmSync(dir, { recursive: true }); fs.rmSync(d2, { recursive: true });
+});
+
+test('badges already yours before badges existed (pet, album) carry no date and are not "new" in the recap', () => {
+  const { dir, eng, settings } = rig();
+  settings.set({ album: { 'special:rainbow': 'x' } });
+  const r = eng.badges();
+  assert.deepEqual(settings.get('badgesEarly'), ['secret']);
+  assert.equal(r.list.find((b) => b.id === 'secret').early, true);
+  assert.equal(eng.recap(0).badges.length, 0);
+  fs.rmSync(dir, { recursive: true });
+});

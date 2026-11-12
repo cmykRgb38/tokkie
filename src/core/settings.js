@@ -19,10 +19,17 @@ const DEFAULTS = Object.freeze({
   samples: [],               // persisted finished turns (survive log rotation)
   theme: 'auto',            // auto | light | dark
   notifyDone: true,
-  notifyReset: true,
+  notifyReset: true,         // a quiet alert when a limit you'd used a lot of starts over
+  notifyBadges: true,        // a notification (and a happy pet) when you earn a badge
+  notifyRecap: true,         // Monday morning: last week's recap
+  recapSent: 0,              // the Monday of the last recap we told you about
+  badges: {},                // badges earned: { id: when }
+  badgeFlags: {},            // moments only seen live (3 runs at once, a close call): { id: when }
+  badgesSeeded: false,       // badges from before this version were filled in quietly, once
+  badgesEarly: [],           // ...and the ones already yours then whose moment can't be known (pet forms, album): no date, not "new"
   checkUpdates: false,        // off unless you turn it on: the only thing that makes Tokkie go online (GitHub's release list)
   updateSeen: '',             // the newest version we already told you about
-  codexK: {},                 // Codex: tokens per 100% of each limit window (by its length in minutes), learned from your own use          // a quiet alert when a limit you'd used a lot of starts over
+  codexK: {},                 // Codex: tokens per 100% of each limit window (by its length in minutes), learned from your own use
   alertBubble: true,         // pet reacts (hop + blinking !/?) when Claude finishes / may need you
   speechBubble: true,        // ...and also show the "Claude is done — your turn" speech bubble
   manualReadings: [],        // percentages you typed in from Claude's Usage page: [{id, t, pct}] — exact anchors + calibration points

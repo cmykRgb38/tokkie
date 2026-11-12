@@ -338,10 +338,10 @@ function setupIpc() {
   ipcMain.handle('settings:set', (_e, patch) => {
     const out = { ok: true };
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, error: 'bad request' };
-    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'notifyReset', 'checkUpdates', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton', 'optimizerMode', 'optimizeHotkey', 'strip', 'stripPos', 'providers'];
+    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'notifyReset', 'notifyBadges', 'notifyRecap', 'checkUpdates', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton', 'optimizerMode', 'optimizeHotkey', 'strip', 'stripPos', 'providers'];
     const clean = {};
     for (const k of allowed) if (Object.prototype.hasOwnProperty.call(patch, k)) clean[k] = patch[k];
-    const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'notifyReset', 'checkUpdates', 'alertBubble', 'speechBubble', 'strip'];
+    const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'notifyReset', 'notifyBadges', 'notifyRecap', 'checkUpdates', 'alertBubble', 'speechBubble', 'strip'];
     for (const k of bool) if (k in clean) clean[k] = !!clean[k];
     if ('theme' in clean && !['auto', 'light', 'dark'].includes(clean.theme)) delete clean.theme;
     if ('finishBy' in clean && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(clean.finishBy))) delete clean.finishBy;
@@ -465,6 +465,22 @@ function setupIpc() {
   });
   ipcMain.handle('ui:openClaude', async () => { try { await shell.openExternal('claude://'); return { ok: true }; } catch { return { ok: false }; } });
   ipcMain.handle('runs:history', () => engine.history());
+  ipcMain.handle('badges', () => { const r = engine.badges(); return { list: r.list, streak: r.streak, bestStreak: r.bestStreak }; });
+  ipcMain.handle('recap', (_e, offset) => engine.recap(Number(offset) || 0));
+  // "Copy as image": a picture of one card in the panel (the renderer says where it is) goes on the clipboard
+  ipcMain.handle('ui:copyImage', async (e, r) => {
+    const w = BrowserWindow.fromWebContents(e.sender);
+    if (!w || !r || ![r.x, r.y, r.width, r.height].every(Number.isFinite) || r.width < 10 || r.height < 10) return { ok: false };
+    try {
+      const img = await w.webContents.capturePage({ x: Math.max(0, Math.round(r.x)), y: Math.max(0, Math.round(r.y)), width: Math.round(r.width), height: Math.round(r.height) });
+      if (img.isEmpty()) return { ok: false };
+      // Electron 44's clipboard takes W3C-style items (older versions had writeImage)
+      if (typeof clipboard.writeImage === 'function') clipboard.writeImage(img);
+      else await clipboard.write([new (require('electron').ClipboardItem)({ 'image/png': new Blob([img.toPNG()], { type: 'image/png' }) })]);
+      lastClipboard = '';
+      return { ok: true };
+    } catch { return { ok: false }; }
+  });
   ipcMain.handle('prompt:optimize', (_e, text) => runOptimize(text));
   ipcMain.on('ui:optimizeClipboard', () => optimizeClipboard());
   ipcMain.handle('opt:undo', () => undoClipboardOptimize());
@@ -534,6 +550,21 @@ else {
       const who = provider === 'codex' ? 'Codex' : 'Claude';
       const n = new Notification({ title: `${who}: your ${label.toLowerCase()} has reset`, body: `You had used ${Math.round(was)}%. It starts over now.`, silent: true });
       n.on('click', () => showWindow('usage'));
+      n.show();
+    });
+    engine.on('badge', (b) => {
+      send('command', { type: 'badge', ...b });           // the pet celebrates either way
+      if (!settings.get('notifyBadges') || !Notification.isSupported()) return;
+      const n = new Notification({ title: `Badge earned: ${b.icon} ${b.name}`, body: b.how, silent: true });
+      n.on('click', () => showWindow('pets'));
+      n.show();
+    });
+    engine.on('recap', (r) => {
+      if (!settings.get('notifyRecap') || !Notification.isSupported()) return;
+      const h = r.seconds / 3600, time = h >= 1 ? `${h.toFixed(1)} h` : `${Math.round(r.seconds / 60)} min`;
+      const tok = r.tokens >= 1e6 ? `${(r.tokens / 1e6).toFixed(1)}M` : `${Math.round(r.tokens / 1e3)}k`;
+      const n = new Notification({ title: 'Your week with your AIs', body: `${r.runs} runs · ${tok} tokens · ${time} of AI work. Click to see the recap.`, silent: true });
+      n.on('click', () => showWindow('history'));
       n.show();
     });
     setInterval(() => { if (win && win.isVisible()) send('state', snapshot()); }, STATE_MS);
