@@ -12,15 +12,15 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 function files(dir, out = []) {
-  for (const e of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
-    const rel = path.join(dir, e.name);
+  for (const e of fs.readdirSync(path.join(ROOT, ...dir.split('/')), { withFileTypes: true })) {
+    const rel = `${dir}/${e.name}`;   // always '/', so names match the lists below on Windows too
     if (e.isDirectory()) { if (!['node_modules', 'tests', 'dev'].includes(e.name)) files(rel, out); }
     else if (/\.(js|mjs|cjs|ts|tsx|html)$/.test(e.name)) out.push(rel);
   }
   return out;
 }
-const SHIPPED = [...files('src'), ...files('bridge'), 'scripts/statusline-hook.js'].filter((f) => !/[\\/]e2e\.js$/.test(f));   // e2e.js only runs under the test harness
-const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
+const SHIPPED = [...files('src'), ...files('bridge'), 'scripts/statusline-hook.js'].filter((f) => !f.endsWith('/e2e.js'));   // e2e.js only runs under the test harness
+const read = (f) => fs.readFileSync(path.join(ROOT, ...f.split('/')), 'utf8').replace(/\r\n/g, '\n');   // Windows checkouts may use CRLF
 
 test('no network code ships: nothing can send your data anywhere', () => {
   const NET = [
