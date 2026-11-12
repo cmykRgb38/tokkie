@@ -9,7 +9,7 @@ const on = (channel) => (cb) => {
 
 contextBridge.exposeInMainWorld('tokkie', {
   getState: () => ipcRenderer.invoke('state'),
-  estimate: (text) => ipcRenderer.invoke('estimate', text),
+  estimate: (text, provider) => ipcRenderer.invoke('estimate', text, provider),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   setup: { status: () => ipcRenderer.invoke('setup:status'), connect: () => ipcRenderer.invoke('setup:connect'), disconnect: () => ipcRenderer.invoke('setup:disconnect') },
   sources: () => ipcRenderer.invoke('sources'),
@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('tokkie', {
     quit: () => ipcRenderer.send('ui:quit'),
     hide: () => ipcRenderer.send('ui:hide'),
     openExternal: (u) => ipcRenderer.send('ui:openExternal', u),
+    checkUpdate: () => ipcRenderer.invoke('update:check'),
     revealSettings: () => ipcRenderer.send('ui:revealSettings'),
     estimateClipboard: () => ipcRenderer.send('ui:estimateClipboard'),
     ready: () => ipcRenderer.send('ui:ready'),

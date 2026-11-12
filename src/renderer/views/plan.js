@@ -58,8 +58,15 @@ export function planView(root, api) {
   ta.addEventListener('input', () => { optBtn.disabled = !ta.value.trim(); });
 
   const runsBox = el('div', { class: 'runs' });
+  // Which AI the prompt is for (shown once Codex is on this computer): each has its own pace and its own limits
+  let who = 'claude';
+  const whoBtns = [['claude', 'Claude'], ['codex', 'Codex']].map(([k, l]) => el('button', { type: 'button', 'data-k': k, 'aria-pressed': String(k === who),
+    onclick: () => { if (who === k) return; who = k; for (const b of whoBtns) b.setAttribute('aria-pressed', String(b.dataset.k === who)); run(); } },
+    el('span', { class: 'pdot', 'data-p': k, 'aria-hidden': 'true' }), l));
+  const whoSeg = el('div', { class: 'seg who est-who', role: 'group', 'aria-label': 'Estimate for', hidden: true }, ...whoBtns);
   root.append(el('div', { class: 'stack' },
     el('div', { class: 'row' }, el('label', { class: 'label', style: 'display:flex;align-items:center;gap:8px;white-space:nowrap' }, 'Done by', finish, untilEl), clipBtn),
+    whoSeg,
     el('div', { style: 'display:grid;gap:6px' }, ta, el('div', { class: 'row' }, meta, optBtn)),
     optBox,
     out, runsBox));
@@ -111,8 +118,9 @@ export function planView(root, api) {
       el('span', { class: 'lbl', style: showEnd ? (end > 72 ? `right:${100 - end}%;margin-right:6px;color:var(--bad)` : `left:${end}%;margin-left:6px;color:var(--bad)`) : 'right:0', text: showEnd ? fin : plan.verdict === 'over' ? '' : `${fin} ›` }));
 
     const shareTxt = share ? `${share.lo < 1 ? '<1' : Math.round(share.lo)}–${Math.max(1, Math.round(share.hi))}% of 5-hour limit` : '';
-    const conf = r.confidence === 'low' ? `Still learning your pace (${r.n} run${r.n === 1 ? '' : 's'} so far). Treat this as a rough guess.`
-      : r.confidence === 'medium' ? `Based on your last ${r.n} runs.` : `Based on your last ${Math.min(r.n, 300)} runs. Big agentic tasks still vary a lot.`;
+    const cx = r.provider === 'codex', runsW = cx ? 'Codex runs' : 'runs';
+    const conf = r.confidence === 'low' ? `Still learning your ${cx ? 'Codex ' : ''}pace (${r.n} ${cx ? 'timed Codex run' : 'run'}${r.n === 1 ? '' : 's'} so far). Treat this as a rough guess.`
+      : r.confidence === 'medium' ? `Based on your last ${r.n} ${runsW}.` : `Based on your last ${Math.min(r.n, 300)} ${runsW}. Big agentic tasks still vary a lot.`;
     paintMeta();
     // Will it fit in what's left of your limit? (the tightest limit we can measure)
     const f = r.fit, pct = (x) => (x < 1 ? '<1' : String(Math.round(x)));
@@ -140,14 +148,16 @@ export function planView(root, api) {
         r.chat && r.chat.ctx >= 20e3 ? el('div', { class: 'row' }, el('span', { text: 'Re-reading the chat' }), el('span', { text: `≈ ${fmtTokens(r.chat.rereads.p25)}–${fmtTokens(r.chat.rereads.p75)}`, title: `Every step re-sends your current ${fmtTokens(r.chat.ctx)} chat. Re-reads from cache cost a tenth of the price, but they add up.` })) : null,
         r.cost && !(f && f.usd) ? el('div', { class: 'row' }, el('span', { text: 'Cost at API prices' }), el('span', { text: `≈ ${fmtUsdRange(r.cost)}`, title: `From the $ per token of your own Claude Code runs${r.chat ? ', in the chat you were just in' : ''}. On a Pro or Max plan this comes out of your usage limit, not your wallet.` })) : null,
         f ? el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: `≈ ${need} · ${left} left`, title: `${f.label}: this prompt’s likely share vs what’s left`, style: f.status === 'no' ? 'color:var(--bad)' : f.status === 'risky' ? 'color:var(--warn)' : '' }))
-          : el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), el('span', { text: share ? `≈ ${shareTxt}` : 'connect limits for %', style: share ? '' : 'font-weight:500;color:var(--ink-3)' }))),
+          : el('div', { class: 'row' }, el('span', { text: 'Limit impact' }), cx
+            ? el('span', { text: r.codexLimits ? 'learning (needs 3% used)' : 'Codex limits not available', style: 'font-weight:500;color:var(--ink-3)', title: 'Tokkie learns how many tokens make 1% of your Codex limit from your own runs, once Codex reports at least 3% used.' })
+            : el('span', { text: share ? `≈ ${shareTxt}` : 'connect limits for %', style: share ? '' : 'font-weight:500;color:var(--ink-3)' }))),
       el('p', { class: 'muted', text: conf }));
   }
 
   async function run() {
     const text = ta.value; const mine = ++seq;
     if (!text.trim()) { last = null; empty(); charsText = ''; paintMeta(); return; }
-    const r = await api.estimate(text); if (mine !== seq) return;
+    const r = await api.estimate(text, who); if (mine !== seq) return;
     charsText = `${text.length.toLocaleString()} chars · ≈${fmtTokens(r.promptTokens)} tokens`;
     render(r);
   }
@@ -187,6 +197,9 @@ export function planView(root, api) {
   return {
     update(s) {
       S = s; renderRuns(s);
+      const cxOk = !!(s.providers && s.providers.codex && s.providers.codex.on && s.providers.codex.available);
+      whoSeg.hidden = !cxOk;
+      if (!cxOk && who === 'codex') { who = 'claude'; for (const b of whoBtns) b.setAttribute('aria-pressed', String(b.dataset.k === who)); if (ta.value.trim()) rerun(); }
       if (document.activeElement !== finish && !finish.hasAttribute('aria-invalid')) finish.value = labelForHHMM(s.settings.finishBy);
       const fb = new Date(s.now); const [h, m] = s.settings.finishBy.split(':').map(Number); fb.setHours(h, m, 0, 0);
       const left = (fb - s.now) / 1000;
@@ -197,7 +210,7 @@ export function planView(root, api) {
     },
     flash,
     setText(text) { ta.value = text.slice(0, 20000); run(); },
-    setResult(text, result) { ta.value = text.slice(0, 20000); optBtn.disabled = !ta.value.trim(); charsText = `${text.length.toLocaleString()} chars · ≈${fmtTokens(result.promptTokens)} tokens`; render(result); },
+    setResult(text, result) { ta.value = text.slice(0, 20000); optBtn.disabled = !ta.value.trim(); charsText = `${text.length.toLocaleString()} chars · ≈${fmtTokens(result.promptTokens)} tokens`; if (who === 'codex') run(); else render(result); },   // the shortcut estimates for Claude; keep the AI you picked
     focus() { ta.focus(); },
   };
 }

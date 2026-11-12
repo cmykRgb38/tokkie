@@ -30,7 +30,9 @@ let S = null, mode = 'collapsed', tab = 'usage', prevLast5h = null, lastEnd = nu
 // ------------------------------------------------------------------------------------- API for views
 const api = {
   setSettings: (p) => bridge.setSettings(p),
-  estimate: (t) => bridge.estimate(t),
+  estimate: (t, provider) => bridge.estimate(t, provider),
+  openExternal: (u) => bridge.ui.openExternal(u),
+  checkUpdate: () => bridge.ui.checkUpdate(),
   estimateClipboard: () => bridge.ui.estimateClipboard(),
   connect: async () => { const r = await bridge.setup.connect(); views.settings.refreshSetup(); return r; },
   disconnect: async () => { const r = await bridge.setup.disconnect(); views.settings.refreshSetup(); return r; },
@@ -332,6 +334,40 @@ function barItems(S, lines) {
   for (const l of lines) if (l.k !== 'codex') out.push(barItem(l));          // the Claude bar is Claude's
   return out;
 }
+/**
+ * Codex's strip: the same kind of items as the Claude bar, from Codex's own numbers. Codex can't host a bar in its
+ * window (its plugins have no UI slot), so the floating strip, parked above Codex's prompt box, is where these live.
+ */
+function codexStripItems(S, now = S.now) {
+  const cx = S.providers && S.providers.codex;
+  if (!cx || !cx.on || !cx.available) return null;
+  const out = [], W = (cx.limits && cx.limits.windows) || [];
+  if (cx.active && cx.activeStart) out.push({ k: 'status', label: 'Codex', value: `Working ${fmtClockDur((now - cx.activeStart) / 1000)}`, tone: '', tip: 'Codex is running a task right now.' + (cx.typical ? ` Your runs usually take ${fmtRange(cx.typical.duration.p25, cx.typical.duration.p75)}.` : '') });
+  else if (cx.lastTurnEnd && now - cx.lastTurnEnd < 3600e3) out.push({ k: 'status', label: 'Codex', value: `Done ${fmtDur((now - cx.lastTurnEnd) / 1000).split(' ')[0]}`, tone: '', tip: `Codex finished ${fmtDur((now - cx.lastTurnEnd) / 1000)} ago.` });
+  else out.push({ k: 'status', label: 'Codex', value: 'Idle', tone: '', tip: 'Nothing running in Codex.' });
+  for (const w of W.slice(0, 2)) out.push({ k: 'usage', label: `${w.label} limit`, value: `${fmtPct(w.pct)}%`, tone: kindUsed(w.pct),
+    tip: `${fmtPct(w.pct)}% of your Codex ${w.label.toLowerCase()} limit used${w.resetsAt ? `, resets ${fmtRunOut(w.resetsAt, now)}` : ''}. Exact, from Codex.` });
+  const tight = W.length ? W.reduce((a, b) => (b.pct > a.pct ? b : a)) : null;
+  if (tight && tight.resetsAt && tight.mins) {                 // pace: will you run out before it resets?
+    const elapsed = clamp(1 - (tight.resetsAt - now) / (tight.mins * 60e3), 0, 1) * 100;
+    if (elapsed > 2 && tight.pct > 0 && tight.pct / elapsed > 1) {
+      const perMs = tight.pct / Math.max(1, (tight.mins * 60e3) * elapsed / 100), outAt = now + (100 - tight.pct) / perMs;
+      if (outAt < tight.resetsAt) out.push({ k: 'pace', label: 'Pace', value: `out ${fmtRunOutShort(outAt, now)}`, tone: 'bad', tip: `At this pace you run out of your Codex ${tight.label.toLowerCase()} limit ${fmtRunOut(outAt, now)}, before it resets ${fmtRunOut(tight.resetsAt, now)}.` });
+    }
+  }
+  if (cx.typical && cx.typical.tokens) {
+    const t = cx.typical.tokens, k = tight && cx.k ? cx.k[tight.mins] : null;
+    const share = k ? ` ≈ ${Math.max(0.1, (t.p25 / k) * 100).toFixed(1)}–${((t.p75 / k) * 100).toFixed(1)}% of your ${tight.label.toLowerCase()} limit` : '';
+    out.push({ k: 'next', label: 'Next run', value: `~${fmtTokens(t.p50)}`, tone: '', tip: `A typical Codex run of yours uses ${fmtTokens(t.p25)}–${fmtTokens(t.p75)} tokens${share}${cx.typical.duration ? ` and takes ${fmtRange(cx.typical.duration.p25, cx.typical.duration.p75)}` : ''}. Paste a prompt in Tokkie → Estimate (For: Codex) for this one.` });
+  }
+  if (cx.last && cx.last.tokens) out.push({ k: 'lastPrompt', label: 'Last run', value: `${cx.last.estimated ? '≈' : ''}${fmtTokens(cx.last.tokens)}`, tone: '',
+    tip: `Your last Codex run used ${fmtTokens(cx.last.tokens)} tokens${cx.last.duration > 0 ? ` over ${fmtDur(cx.last.duration)}` : ''}.${cx.last.estimated ? ' Estimated: Codex keeps one running total per chat.' : ''}` });
+  out.push({ k: 'tokens', label: 'Today', value: fmtTokens(cx.today.tokens), tone: '', tip: `${cx.today.runs} Codex run${cx.today.runs === 1 ? '' : 's'} today, ${fmtTokens(cx.today.tokens)} tokens.` });
+  return out;
+}
+/** Which AI the strip should show by itself: the one working now, else the one that finished last. */
+const stripAuto = (S) => (S.active ? (S.active.provider === 'codex' ? 'codex' : 'claude') : S.lastTurnBy === 'codex' ? 'codex' : 'claude');
+
 /** One chat's own items, in the Dock's format (so they read the same everywhere). */
 function chatLines(r, now, on = {}) {
   if (!r) return [];
@@ -430,7 +466,7 @@ function render() {
   const lines = S.settings.layout === 'dock' ? dockLines(S, d) : null;
   if (lines) renderDock(lines);
   const stripLines = S.settings.strip ? lines || dockLines(S, d) : null;
-  if (stripLines) bridge.ui.strip?.({ items: stripLines.map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S) });
+  if (stripLines) bridge.ui.strip?.({ items: stripLines.filter((l) => l.k !== 'codex').map((l) => ({ k: l.k, label: BAR_LABEL[l.k] || l.label, value: barText(l), tone: l.tone, tip: barTip(l) })), alert: bandAlert(S), codex: codexStripItems(S), auto: stripAuto(S) });
   applyLayout();
   const inClaude = !!lines && place === 'claude';
   const chats = {};

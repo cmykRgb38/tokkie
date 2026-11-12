@@ -276,3 +276,22 @@ test('a live estimate never dips a little below what was shown in the same windo
   x = m(10, true); eng._steady(x, t0 + 180e3); assert.equal(x[0].pct, 10, 'a big drop is a reset');
   fs.rmSync(dir, { recursive: true });
 });
+
+test('Codex estimate: from Codex runs only, and its share of the Codex limit once learned from your own use', async () => {
+  const { dir, eng, settings } = rig();
+  await eng.start();
+  const now = Date.now();
+  for (let i = 0; i < 6; i++) eng.store.addSample({ sessionId: 'cx' + i, provider: 'codex', source: 'codex', start: now - (i + 1) * 3600e3, duration: 120 + i * 10, chars: 200, hint: 1, prev: 0, tokens: 200e3, headline: 200e3, output: 0 });
+  eng.store.addSample({ sessionId: 'old', provider: 'codex', source: 'codex', start: now - 9 * 3600e3, duration: 0, chars: 200, hint: 1, prev: 0, tokens: 200e3, headline: 200e3, output: 0 });   // no time recorded
+  const week = { at: now, plan: 'plus', windows: [{ label: 'Weekly', mins: 10080, pct: 14, resetsAt: now + 3 * 86400e3 }] };
+  if (eng.codexLimits) eng.codexLimits.stop();              // don't leave a real Codex app-server running
+  eng.codexLimits = { latest: week, error: null, stop() {} };
+  eng._codexView(now);                                        // learns: 1.4M tokens in this window = 14% → 10M per 100%
+  assert.equal(settings.get('codexK')[10080], 10e6);
+  const r = eng.estimate('fix the login bug', now, { provider: 'codex' });
+  assert.equal(r.provider, 'codex'); assert.equal(r.chat, null);
+  assert.ok(r.duration.p50 > 60 && r.duration.p50 < 400, `run time from Codex runs (${r.duration.p50}s)`);
+  assert.equal(r.fit.label, 'Codex weekly limit'); assert.equal(r.fit.status, 'ok');
+  assert.ok(r.fit.need.p50 > 0.5 && r.fit.need.p50 < 5, `≈2% of the week (${r.fit.need.p50})`);
+  eng.codexLimits = null; eng.stop(); fs.rmSync(dir, { recursive: true });
+});

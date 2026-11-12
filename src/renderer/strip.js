@@ -21,11 +21,18 @@ const PATHS = {
 const svg = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[k] || PATHS.status}</svg>`;
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-let data = { items: [], alert: '', optKey: '' }, hoverTip = null, toast = null, toastTimer = null;
+let data = { items: [], alert: '', optKey: '', codex: null, auto: 'claude' }, hoverTip = null, toast = null, toastTimer = null;
+// Which AI it shows: follows whichever one you're using (working now, else finished last); the switch overrides that
+// until the other AI starts or finishes something.
+let picked = null, lastAuto = 'claude';
+const showing = () => (data.codex ? picked || data.auto : 'claude');
 
 function render() {
-  const items = [...(data.alert ? [{ k: 'alert', label: 'Heads-up', value: '!', tone: 'bad', tip: data.alert }] : []), ...data.items];
-  bar.innerHTML = '<span class="grip" aria-hidden="true"></span>'
+  const ai = showing();
+  const items = ai === 'codex' ? data.codex : [...(data.alert ? [{ k: 'alert', label: 'Heads-up', value: '!', tone: 'bad', tip: data.alert }] : []), ...data.items];
+  const sw = data.codex ? `<button class="ai" type="button" data-ai="${ai}" aria-label="Showing ${ai === 'codex' ? 'Codex' : 'Claude'}. Switch to ${ai === 'codex' ? 'Claude' : 'Codex'}"><span class="pdot" data-p="${ai}"></span>${ai === 'codex' ? 'Codex' : 'Claude'}</button>` : '';
+  bar.dataset.ai = ai;
+  bar.innerHTML = '<span class="grip" aria-hidden="true"></span>' + sw
     + items.map((x, i) => `<span class="it" data-i="${i}" data-k="${x.tone || ''}" data-key="${esc(x.k)}">${svg(x.k)}<span class="v">${esc(x.value)}</span></span>`).join('')
     + (items.length ? '<span class="sep"></span>' : '')
     + `<button class="opt" type="button" aria-label="Optimize the prompt on your clipboard">${svg('sparkle')}Optimize</button>`
@@ -49,7 +56,8 @@ function paintTip() {
 bar.addEventListener('mouseover', (e) => {
   const it = e.target.closest('.it'), b = e.target.closest('button');
   if (it) { const x = bar._items[+it.dataset.i]; hoverTip = { title: `${x.label}: ${x.value}`, sub: x.tip, x: it.offsetLeft + bar.offsetLeft }; }
-  else if (b && b.classList.contains('opt')) hoverTip = { title: 'Optimize your prompt', sub: `Copy it first (select it in Claude’s box and copy), then click. A clearer version replaces it on your clipboard: just paste. Shortcut: ${data.optKey}.`, x: b.offsetLeft + bar.offsetLeft };
+  else if (b && b.classList.contains('ai')) { const ai = showing(); hoverTip = { title: `Showing ${ai === 'codex' ? 'Codex' : 'Claude'}`, sub: `Click for ${ai === 'codex' ? 'Claude' : 'Codex'}. The strip follows whichever AI you’re using; a click overrides that until the other one runs.`, x: b.offsetLeft + bar.offsetLeft }; }
+  else if (b && b.classList.contains('opt')) hoverTip = { title: 'Optimize your prompt', sub: `Copy it first (select it in ${showing() === 'codex' ? 'Codex’s' : 'Claude’s'} box and copy), then click. A clearer version replaces it on your clipboard: just paste. Shortcut: ${data.optKey}.`, x: b.offsetLeft + bar.offsetLeft };
   else if (b) hoverTip = { title: 'Open Tokkie', sub: 'Usage, estimates, history and settings.', x: b.offsetLeft + bar.offsetLeft };
   else hoverTip = { title: 'Tokkie strip', sub: 'Drag to move it, for example just above Claude’s prompt box. Turn it off in Settings → On your desktop.', x: 8 };
   paintTip();
@@ -85,6 +93,7 @@ bar.addEventListener('pointerup', () => {
 });
 bar.addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
+  if (b.classList.contains('ai')) { picked = showing() === 'codex' ? 'claude' : 'codex'; hoverTip = null; render(); return; }
   if (b.dataset.open) ui.open('usage'); else api.ui.optimizeClipboard();
 });
 tip.addEventListener('click', async () => { if (toast && toast.undo) { await api.ui.undoOptimize(); } });
@@ -98,6 +107,7 @@ api.onCommand((c) => {
 });
 ui.onStrip((p) => {
   data = p;
+  if (p.auto !== lastAuto) { picked = null; lastAuto = p.auto; }   // the other AI started or finished: follow it again
   if (p.theme === 'light' || p.theme === 'dark') document.documentElement.dataset.theme = p.theme; else delete document.documentElement.dataset.theme;
   render();
 });

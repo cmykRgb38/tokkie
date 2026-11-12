@@ -40,6 +40,10 @@
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   button.opt svg { color: var(--accent); opacity: 1; }
   button.ico { padding: 0 6px; color: var(--ink-2); }
+  /* which AI it shows: a small switch at the front, in that AI's colour */
+  button.ai { gap: 6px; padding: 0 8px 0 7px; margin-right: 2px; border: 1px solid var(--line); height: 22px; font-size: 11.5px; }
+  .pdot { width: 7px; height: 7px; border-radius: 50%; background: oklch(0.70 0.14 45); flex: none; }
+  .pdot[data-p="codex"] { background: oklch(0.68 0.07 250); }
   .tip { position: fixed; left: 8px; bottom: 46px; max-width: calc(100vw - 20px); box-sizing: border-box; padding: 7px 10px; border-radius: 9px;
     background: var(--bg); border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--ink-2); font-size: 12px; line-height: 1.4; white-space: normal; }
   .tip b { color: var(--ink); font-weight: 650; }

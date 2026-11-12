@@ -114,6 +114,16 @@ export function settingsView(root, api) {
   const bubbleT = toggle('Show the speech bubble', 'The “Claude is done — your turn” note above the pet (or Codex, whichever finished).', 'speechBubble', api);
   const notify = toggle('Notify when done', 'A quiet alert when a run longer than a minute finishes.', 'notifyDone', api);
   const notifyR = toggle('Notify when a limit resets', 'When a limit you had used half or more of starts over, for Claude and Codex.', 'notifyReset', api);
+  const updT = toggle('Tell me about new versions', 'Once a day Tokkie asks GitHub for the newest version number. Nothing about you is sent, and this is the only time Tokkie goes online.', 'checkUpdates', api);
+  const updStatus = el('div', { class: 'd' });
+  const updBtn = el('button', { class: 'btn sm', type: 'button', hidden: true });
+  let updUrl = '';
+  updBtn.addEventListener('click', async () => {
+    if (updUrl) { api.openExternal(updUrl); return; }
+    updBtn.disabled = true; updBtn.textContent = 'Checking…';
+    try { await api.checkUpdate(); } finally { updBtn.disabled = false; }
+  });
+  const updRow = el('div', { class: 'field inline', hidden: true }, el('div', { class: 'ftext' }, el('div', { class: 't', text: 'Version' }), updStatus), updBtn);
   const login = toggle('Launch at login', null, 'launchAtLogin', api);
   const top = toggle('Always on top', null, 'alwaysOnTop', api);
 
@@ -139,7 +149,7 @@ export function settingsView(root, api) {
     group('Appearance', field('Theme', null, theme.node), field('Pet size', null, size.node)),
     group('Estimate', hotRow, clip.row),
     group('Alerts', alertT.row, bubbleT.row, notify.row, notifyR.row),
-    group('System', login.row, top.row, budgetRow,
+    group('System', updT.row, updRow, login.row, top.row, budgetRow,
       el('div', { class: 'field inline' }, el('div', { class: 'ftext' }, el('div', { class: 't', text: 'Tour' }), el('div', { class: 'd', text: 'A one-minute walk through what Tokkie can do.' })),
         el('button', { class: 'btn sm', type: 'button', text: 'Take the tour', onclick: () => api.startTour() }))),
     details,
@@ -192,12 +202,20 @@ export function settingsView(root, api) {
         : fresh ? '✓ Received! The shortcut works.' : hk && hk.firedAt ? `● Active · last used ${fmtDur((Date.now() - hk.firedAt) / 1000)} ago` : '● Active — press it now to test';
       hotStatus.style.color = ok ? 'var(--good)' : 'var(--bad)';
       optBtnT.sw.setAttribute('aria-checked', String(st.optimizeButton !== false));
-      for (const [t, k] of [[alertT, 'alertBubble'], [bubbleT, 'speechBubble'], [clip, 'clipboardWatch'], [notify, 'notifyDone'], [notifyR, 'notifyReset'], [login, 'launchAtLogin'], [top, 'alwaysOnTop']]) t.sw.setAttribute('aria-checked', String(!!st[k]));
+      for (const [t, k] of [[alertT, 'alertBubble'], [bubbleT, 'speechBubble'], [clip, 'clipboardWatch'], [notify, 'notifyDone'], [notifyR, 'notifyReset'], [updT, 'checkUpdates'], [login, 'launchAtLogin'], [top, 'alwaysOnTop']]) t.sw.setAttribute('aria-checked', String(!!st[k]));
       bubbleT.sw.disabled = st.alertBubble === false; bubbleT.row.classList.toggle('is-disabled', st.alertBubble === false);
       login.sw.disabled = !s.packaged; login.row.title = s.packaged ? '' : 'Available in the installed app';
       if (document.activeElement !== budget) budget.value = st.fallbackBudget5h || '';
       budgetRow.hidden = s.limits.connected;
       ver.textContent = `Tokkie ${s.version}`;
+      { // new versions (only when you turned the check on)
+        const u = s.update, on = !!st.checkUpdates;
+        updRow.hidden = !on;
+        updUrl = u && u.ok && u.newer ? u.url : '';
+        updStatus.textContent = !u ? 'Checking…' : !u.ok ? `Couldn’t check (${u.error}).` : u.newer ? `Tokkie ${u.latest} is out. You have ${s.version}.` : `You have the newest (${s.version}).`;
+        updStatus.style.color = u && u.ok && u.newer ? 'var(--good)' : '';
+        updBtn.hidden = !on; if (!updBtn.disabled) updBtn.textContent = updUrl ? 'Download' : 'Check now';
+      }
     },
     refreshSetup,
   };

@@ -325,9 +325,56 @@ class Engine extends EventEmitter {
   _codexView(now) {
     const on = this.codexOn(), available = this.codex.available(), L = this.codexLimits;
     if (on && L && L.latest) this._watchResets(L.latest.windows.map((x) => ({ key: 'codex:' + x.mins, provider: 'codex', label: x.label + ' limit', pct: x.pct, resetsAt: x.resetsAt, exact: true })), now);
-    const day = startOfDay(now), runs = on ? this.store.samples.filter((x) => x.provider === 'codex' && x.start >= day) : [];
+    const all = on ? this.codexSamples() : [], day = startOfDay(now), runs = all.filter((x) => x.start >= day);
+    const lastS = all.length ? all[all.length - 1] : null;
+    if (on && L && L.latest) this._learnCodexK(L.latest, all);
+    const timed = all.filter((x) => x.duration > 0).slice(-20);
+    const q = (arr, f) => { const v = arr.map(f).filter((x) => x > 0).sort((a, b) => a - b); return v.length >= 3 ? { p25: v[Math.floor(v.length * 0.25)], p50: v[Math.floor(v.length / 2)], p75: v[Math.floor(v.length * 0.75)] } : null; };
     return { on, available, bin: !!L, limits: L ? L.latest : null, limitsError: L ? L.error : (available && on && this._noCodexBin ? 'no-cli' : null), active: !!(on && this.codex.active),
+      activeStart: on && this.codex.active ? this.codex.active.start || null : null,
+      lastTurnEnd: on ? this.codex.lastTurnEnd || 0 : 0,
+      last: lastS ? { tokens: lastS.headline || lastS.tokens || 0, duration: lastS.duration || 0, estimated: !!lastS.estimatedTokens, start: lastS.start } : null,
+      typical: timed.length >= 3 ? { duration: q(timed, (x) => x.duration), tokens: q(all.slice(-20), (x) => x.headline || x.tokens) } : null,
+      k: { ...(this.settings.get('codexK') || {}) },
       today: { runs: runs.length, tokens: runs.reduce((a, x) => a + (x.headline || 0), 0) } };
+  }
+
+  codexSamples() { return this.store.samples.filter((x) => x.provider === 'codex'); }
+
+  /**
+   * How many Codex tokens make 100% of each limit window, from your own use: the tokens of the runs inside the current
+   * window vs the % Codex says is used. Only once at least 3% is used (Codex reports whole percents). Kept per window
+   * length, so it survives the reset.
+   */
+  _learnCodexK(lim, samples) {
+    const saved = this.settings.get('codexK') || {};
+    let changed = false;
+    const next = { ...saved };
+    for (const w of lim.windows || []) {
+      if (!(w.pct >= 3) || !w.resetsAt || !w.mins) continue;
+      const from = w.resetsAt - w.mins * 60e3;
+      const tok = samples.reduce((a, x) => a + (x.start >= from ? x.headline || x.tokens || 0 : 0), 0);
+      if (tok <= 0) continue;
+      const k = Math.round((tok / w.pct) * 100);
+      if (!saved[w.mins] || Math.abs(saved[w.mins] - k) / saved[w.mins] > 0.02) { next[w.mins] = k; changed = true; }
+    }
+    if (changed) this.settings.set({ codexK: next });
+  }
+
+  /** Will a Codex run of these tokens fit its tightest limit? Same shape as _fit for Claude. */
+  _codexFit(tokens, lim) {
+    if (!lim || !lim.windows) return null;
+    const K = this.settings.get('codexK') || {};
+    let worst = null;
+    for (const w of lim.windows) {
+      const k = K[w.mins], left = Math.max(0, 100 - w.pct);
+      if (!k && left > 0) continue;
+      const need = k ? { p50: (tokens.p50 / k) * 100, p75: (tokens.p75 / k) * 100 } : { p50: 0, p75: 0 };
+      const status = left <= 0.05 || need.p50 >= left ? 'no' : need.p75 >= left ? 'risky' : 'ok';
+      const f = { id: 'codex:' + w.mins, label: `Codex ${w.label.toLowerCase()} limit`, left, need, status, usd: null };
+      if (!worst || f.left - f.need.p75 < worst.left - worst.need.p75) worst = f;
+    }
+    return worst;
   }
 
   snapshot(now = this.now()) {
@@ -503,9 +550,21 @@ class Engine extends EventEmitter {
       times: here.p50 / Math.max(1, fresh.p50) };
   }
 
-  estimate(text, now = this.now()) {
+  estimate(text, now = this.now(), { provider = 'claude' } = {}) {
     text = String(text || '');
     const chars = text.length;
+    if (provider === 'codex') {
+      // Codex: from your own Codex runs (timed ones for how long), and its limits as Codex reports them
+      const all = this.codexSamples();
+      const pred = predict(all.filter((x) => x.duration > 0), text, chars, {});
+      const tp = predict(all, text, chars, {});
+      const finishBy = finishTimestamp(this.settings.get('finishBy'), now);
+      const plan = planVerdict(pred, now, finishBy, this.settings.get('bufferMin'));
+      const L = this.codexLimits && this.codexLimits.latest;
+      const fit = this._codexFit(tp.headline, L);
+      return { provider: 'codex', chars, promptTokens: estimateTokens(text), duration: pred.duration, tokens: tp.tokens, headline: tp.headline, share: null, fit, cost: null, chat: null,
+        confidence: pred.confidence, n: pred.n, method: pred.method, plan, finishBy, now, codexLimits: !!L };
+    }
     const r = this.store.recent;
     const pred = predict(this.claudeSamples(), text, chars, { prev: now - r.end < PREV_WINDOW_MS ? r.dur : 0 });
     const finishBy = finishTimestamp(this.settings.get('finishBy'), now);

@@ -19,7 +19,10 @@ const DEFAULTS = Object.freeze({
   samples: [],               // persisted finished turns (survive log rotation)
   theme: 'auto',            // auto | light | dark
   notifyDone: true,
-  notifyReset: true,          // a quiet alert when a limit you'd used a lot of starts over
+  notifyReset: true,
+  checkUpdates: false,        // off unless you turn it on: the only thing that makes Tokkie go online (GitHub's release list)
+  updateSeen: '',             // the newest version we already told you about
+  codexK: {},                 // Codex: tokens per 100% of each limit window (by its length in minutes), learned from your own use          // a quiet alert when a limit you'd used a lot of starts over
   alertBubble: true,         // pet reacts (hop + blinking !/?) when Claude finishes / may need you
   speechBubble: true,        // ...and also show the "Claude is done — your turn" speech bubble
   manualReadings: [],        // percentages you typed in from Claude's Usage page: [{id, t, pct}] — exact anchors + calibration points

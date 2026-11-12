@@ -63,9 +63,29 @@ const hookStatus = () => { if (Date.now() - hookCache.at > 3000) hookCache = { a
 // Packaged: shipped as a plain folder next to the app (outside the asar, so the plugin's .d.ts contract survives packaging).
 const BRIDGE_SOURCE = app.isPackaged ? path.join(process.resourcesPath, 'bridge') : path.join(__dirname, '..', '..', 'bridge');
 
+// ------------------------------------------------------------------ updates (opt-in: Settings → System)
+let updateInfo = null, updateTimer = null;
+async function checkUpdates(force = false) {
+  if (!settings.get('checkUpdates') || process.env.TOKKIE_E2E) return;
+  if (!force && updateInfo && Date.now() - updateInfo.at < 23 * 3600e3) return;
+  updateInfo = { ...(await require('../core/updates').checkForUpdate({ current: app.getVersion() })), checking: false };
+  if (updateInfo.ok && updateInfo.newer && settings.get('updateSeen') !== updateInfo.latest && Notification.isSupported()) {
+    settings.set({ updateSeen: updateInfo.latest });                     // tell you once per version
+    const n = new Notification({ title: `Tokkie ${updateInfo.latest} is available`, body: `You have ${app.getVersion()}. Click to open the download page.`, silent: true });
+    const url = updateInfo.url; n.on('click', () => shell.openExternal(url)); n.show();
+  }
+  send('state', snapshot());
+}
+function scheduleUpdates() {
+  clearInterval(updateTimer); updateTimer = null;
+  if (!settings.get('checkUpdates')) { updateInfo = null; return; }
+  checkUpdates(true);
+  updateTimer = setInterval(() => checkUpdates(), 3600e3); updateTimer.unref?.();   // looks hourly, asks GitHub at most once a day
+}
+
 function snapshot() {
   const s = engine.snapshot();
-  return { ...s, hook: hookStatus(), hotkey: { accelerator: settings.get('hotkey'), ok: hotkeyOk, firedAt: hotkeyFiredAt }, optKey: { accelerator: settings.get('optimizeHotkey'), ok: optKeyOk }, settings: publicSettings(), signature: SIGNATURE, platform: process.platform, version: app.getVersion(), packaged: app.isPackaged };
+  return { ...s, hook: hookStatus(), hotkey: { accelerator: settings.get('hotkey'), ok: hotkeyOk, firedAt: hotkeyFiredAt }, optKey: { accelerator: settings.get('optimizeHotkey'), ok: optKeyOk }, settings: publicSettings(), signature: SIGNATURE, platform: process.platform, version: app.getVersion(), packaged: app.isPackaged, update: updateInfo };
 }
 
 let bandLast = '', bandAt = 0;
@@ -158,6 +178,7 @@ function maybeScreenshot() {
     const img = await win.webContents.capturePage();
     fs.writeFileSync(out, img.toPNG());
     if (strip && !strip.isDestroyed()) {          // the floating strip too (TOKKIE_STRIP_HOVER=<item key> shows that item's tip)
+      if (process.env.TOKKIE_STRIP_JS) { await strip.webContents.executeJavaScript(process.env.TOKKIE_STRIP_JS).catch(() => {}); await new Promise((r) => setTimeout(r, 300)); }   // QA: a scripted step in the strip
       if (process.env.TOKKIE_STRIP_HOVER) { await strip.webContents.executeJavaScript(`(()=>{const k=${JSON.stringify(process.env.TOKKIE_STRIP_HOVER)};const t=k==='opt'?document.querySelector('button.opt'):document.querySelector('.it[data-key="'+k+'"]');t&&t.dispatchEvent(new MouseEvent('mouseover',{bubbles:true}));})()`); await new Promise((r) => setTimeout(r, 300)); }
       fs.writeFileSync(out.replace(/\.png$/, '-strip.png'), (await strip.webContents.capturePage()).toPNG());
     }
@@ -300,8 +321,10 @@ function ensureStrip() {
 let lastStripPayload = null;
 function sendStrip(channel, payload) { if (strip && !strip.isDestroyed()) strip.webContents.send(channel, payload); }
 function updateStrip(p) {
+  const item = (x) => ({ k: String(x.k || '').slice(0, 16), label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: String(x.tip || '').slice(0, 400) });
   const clean = { theme: settings.get('theme'), optKey: prettyAccel(settings.get('optimizeHotkey')), alert: typeof p.alert === 'string' ? p.alert.slice(0, 200) : '',
-    items: (Array.isArray(p.items) ? p.items : []).slice(0, 10).map((x) => ({ k: String(x.k || '').slice(0, 16), label: String(x.label || '').slice(0, 24), value: String(x.value || '').slice(0, 40), tone: ['good', 'warn', 'bad'].includes(x.tone) ? x.tone : '', tip: String(x.tip || '').slice(0, 400) })) };
+    items: (Array.isArray(p.items) ? p.items : []).slice(0, 10).map(item),
+    codex: Array.isArray(p.codex) ? p.codex.slice(0, 10).map(item) : null, auto: p.auto === 'codex' ? 'codex' : 'claude' };
   lastStripPayload = clean;
   const key = JSON.stringify(clean); if (key === stripLast) return; stripLast = key;
   sendStrip('strip', clean);
@@ -310,15 +333,15 @@ function updateStrip(p) {
 // ---------------------------------------------------------------------------------------- IPC
 function setupIpc() {
   ipcMain.handle('state', () => snapshot());
-  ipcMain.handle('estimate', (_e, text) => engine.estimate(String(text || '').slice(0, 200_000)));
+  ipcMain.handle('estimate', (_e, text, provider) => engine.estimate(String(text || '').slice(0, 200_000), undefined, { provider: provider === 'codex' ? 'codex' : 'claude' }));
 
   ipcMain.handle('settings:set', (_e, patch) => {
     const out = { ok: true };
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, error: 'bad request' };
-    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'notifyReset', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton', 'optimizerMode', 'optimizeHotkey', 'strip', 'stripPos', 'providers'];
+    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'notifyReset', 'checkUpdates', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton', 'optimizerMode', 'optimizeHotkey', 'strip', 'stripPos', 'providers'];
     const clean = {};
     for (const k of allowed) if (Object.prototype.hasOwnProperty.call(patch, k)) clean[k] = patch[k];
-    const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'notifyReset', 'alertBubble', 'speechBubble', 'strip'];
+    const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'notifyReset', 'checkUpdates', 'alertBubble', 'speechBubble', 'strip'];
     for (const k of bool) if (k in clean) clean[k] = !!clean[k];
     if ('theme' in clean && !['auto', 'light', 'dark'].includes(clean.theme)) delete clean.theme;
     if ('finishBy' in clean && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(clean.finishBy))) delete clean.finishBy;
@@ -358,6 +381,7 @@ function setupIpc() {
     if ('scale' in clean) clean.scale = [5, 6, 8].includes(Number(clean.scale)) ? Number(clean.scale) : 6;
     if ('window' in clean) clean.window = { ...settings.get('window'), ...clean.window };
     settings.set(clean);
+    if ('checkUpdates' in clean) scheduleUpdates();
     if ('alwaysOnTop' in clean && win) win.setAlwaysOnTop(!!clean.alwaysOnTop, isMac ? 'floating' : 'screen-saver');
     if ('launchAtLogin' in clean && app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR) app.setLoginItemSettings({ openAtLogin: !!clean.launchAtLogin });
     if ('monsters' in clean) { refreshTray(); noteAlbum(); }
@@ -459,6 +483,7 @@ function setupIpc() {
   });
   ipcMain.handle('run:prompt', (_e, sid, uuid) => engine.promptText(String(sid), String(uuid)));
   ipcMain.handle('ui:copyText', async (_e, t) => { const v = String(t).slice(0, 1_000_000); try { await clipboard.writeText(v); lastClipboard = v; return { ok: true }; } catch { return { ok: false }; } });
+  ipcMain.handle('update:check', async () => { await checkUpdates(true); return updateInfo; });
   ipcMain.on('ui:openExternal', (_e, url) => { if (/^https:\/\/[^\s]+$/.test(String(url))) shell.openExternal(url); });
   ipcMain.on('ui:revealSettings', () => { shell.showItemInFolder(settings.file); });
 }
@@ -484,6 +509,7 @@ else {
     registerHotkey(settings.get('hotkey')) || console.warn('hotkey unavailable');
     registerOptKey(settings.get('optimizeHotkey')) || console.warn('optimize hotkey unavailable');
     ensureStrip();
+    scheduleUpdates();
     setup.refreshHook({ hookSource: path.join(__dirname, '..', '..', 'scripts', 'statusline-hook.js') });
     setup.refreshBridge({ bridgeSource: BRIDGE_SOURCE });
     require('../core/optimizer').sweep(require('../core/paths').tokkieHome());

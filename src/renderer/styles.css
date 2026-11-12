@@ -435,3 +435,4 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .bloat-row { display: flex; justify-content: space-between; gap: 10px; min-width: 0; }
 .bloat-l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .bloat-v { font-variant-numeric: tabular-nums; color: var(--ink-2); flex: none; }
+.seg.est-who { margin-top: -4px; }

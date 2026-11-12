@@ -20,6 +20,7 @@ function files(dir, out = []) {
   return out;
 }
 const SHIPPED = [...files('src'), ...files('bridge'), 'scripts/statusline-hook.js'].filter((f) => !f.endsWith('/e2e.js'));   // e2e.js only runs under the test harness
+const UPDATES = 'src/core/updates.js';
 const read = (f) => fs.readFileSync(path.join(ROOT, ...f.split('/')), 'utf8').replace(/\r\n/g, '\n');   // Windows checkouts may use CRLF
 
 test('no network code ships: nothing can send your data anywhere', () => {
@@ -28,8 +29,24 @@ test('no network code ships: nothing can send your data anywhere', () => {
     /\bfetch\s*\(/, /XMLHttpRequest/, /new\s+WebSocket/, /EventSource/, /sendBeacon/, /\bnet\.request\b/, /electron['"]\)\.net\b/, /\{[^}]*\bnet\b[^}]*\}\s*=\s*require\(\s*['"]electron['"]/,
   ];
   const hits = [];
-  for (const f of SHIPPED) { const s = read(f); for (const re of NET) if (re.test(s)) hits.push(`${f}: ${re}`); }
+  for (const f of SHIPPED) { if (f === UPDATES) continue; const s = read(f); for (const re of NET) if (re.test(s)) hits.push(`${f}: ${re}`); }
   assert.deepEqual(hits, []);
+});
+
+test('the one exception, the update check: off by default, GitHub only, and it sends nothing about you', () => {
+  const s = read(UPDATES);
+  const urls = [...s.matchAll(/https?:\/\/[^\s'"`]+/g)].map((m) => m[0]);
+  for (const u of urls) assert.match(u, /^https:\/\/(api\.)?github\.com\/(repos\/)?\$\{REPO\}/, u);
+  assert.equal((s.match(/\bget\(/g) || []).length, 1, 'exactly one request');
+  assert.doesNotMatch(s, /method:\s*['"](POST|PUT|PATCH)/i);
+  assert.doesNotMatch(s, /\bbody\s*:/);
+  const call = /get\(LATEST_URL, \{ headers: \{ Accept: '[^']+', 'User-Agent': 'Tokkie-update-check' \} \}\)/;
+  assert.match(s, call, 'a plain GET with a generic User-Agent');
+  const { DEFAULTS } = require('../src/core/settings');
+  assert.equal(DEFAULTS.checkUpdates, false, 'off until you turn it on');
+  const main = read('src/main/main.js');
+  assert.match(main, /async function checkUpdates\(force = false\) \{\n  if \(!settings\.get\('checkUpdates'\)/, 'never checks unless switched on');
+  assert.equal((main.match(/checkForUpdate\(/g) || []).length, 1);
 });
 
 test('links open only in your browser, and only https or Claude’s own app', () => {
