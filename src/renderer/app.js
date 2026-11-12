@@ -37,7 +37,7 @@ const api = {
   setupStatus: () => bridge.setup.status(),
   sources: () => bridge.sources(),
   setReading: (id, pct) => bridge.setReading(id, pct),
-  emote: (m) => pet.emote(m, m === 'sleep' ? 5000 : 3500),
+  emote: (m) => pet.emote(m, m === 'sleep' ? 5000 : 3500, { force: true }),   // Pets → Preview an emotion: always plays, even while Claude works
   play: (k) => { pet.override = null; return pet.play(k, { forced: true }); },
   hideAway: () => pet.hideAway(),
   personality: () => ({ id: pet.persona, P: pet.P }),

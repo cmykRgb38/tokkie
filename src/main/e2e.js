@@ -140,6 +140,14 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
       // ---- interactivity: emotes, poking, keyboard, eye tracking
       const mood = (code) => js(`(()=>{const p=window.__tokkie.pet;${code}})()`);
       for (const m of ['done', 'surprised', 'angry', 'sleep']) { await mood(`p.emote('${m}', 5000)`); ok(`emote "${m}" takes over the pet`, (await mood(`return p.mood`)) === m); }
+      // Pets → Preview an emotion: every button plays its emotion even while Claude is working (the pet refuses play moods mid-run on its own)
+      {
+        const shown = await js(`(()=>{const p=window.__tokkie.pet, out={}; const b0=p.base; p.base='work'; p.act=null;
+          for (const b of document.querySelectorAll('.emotes button')) { p.override=null; b.click(); out[b.textContent]=p.mood; }
+          p.base=b0; p.override=null; return out;})()`);
+        const want = { Happy: 'done', Playful: 'playful', 'In love': 'love', Surprised: 'surprised', Angry: 'angry', Bored: 'bored', Sleepy: 'sleep' };
+        ok('every emotion preview plays, even while Claude is working', JSON.stringify(shown) === JSON.stringify(want), JSON.stringify(shown));
+      }
       await mood(`p.override = null; p.clicks = []`);
       for (let i = 0; i < 5; i++) await mood(`p.poke()`);
       ok('poking five times makes it angry', (await mood(`return p.mood`)) === 'angry', await mood(`return JSON.stringify({mood:p.mood,o:p.override,n:p.clicks.length,base:p.base})`));

@@ -93,8 +93,9 @@ export class Pet {
     return this.base;
   }
   /** Trigger a temporary emotion. Returns false if the pet is too busy for it. */
-  emote(mood, ms = 3000) {
-    if (IDLE_ONLY.has(mood) && !['idle', 'bored', 'sleep', 'done'].includes(this.base)) return false;
+  emote(mood, ms = 3000, { force = false } = {}) {
+    if (!force && IDLE_ONLY.has(mood) && !['idle', 'bored', 'sleep', 'done'].includes(this.base)) return false;
+    if (force) { this.endAct(); if (this.hide) this.hide = null; }   // a preview you asked for: drop the toy, come out of the box, show it
     this.override = { mood, until: performance.now() + ms };
     if (mood === 'done') this.celebrate();
     if (mood === 'surprised' || mood === 'playful') this.hopT = 0;
