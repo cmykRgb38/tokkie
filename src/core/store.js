@@ -93,7 +93,10 @@ class Store {
 
   prune() {
     const cut = this.now() - KEEP_MS;
-    for (const [id, m] of this.msgs) if (m.ts < cut) { if (this.onPrune) this.onPrune(m); this.msgs.delete(id); }
+    // oldest first, so whoever banks them can keep a simple "banked up to" mark
+    const gone = [];
+    for (const [id, m] of this.msgs) if (m.ts < cut) { gone.push(m); this.msgs.delete(id); }
+    if (this.onPrune) for (const m of gone.sort((a, b) => a.ts - b.ts)) this.onPrune(m);
     for (const [sid, t] of this.sessions) if (this.now() - Math.max(t.lastTs, t.start) > 6 * H) this.sessions.delete(sid);
     for (const sid of this.lastDur.keys()) if (!this.sessions.has(sid) && this.lastDur.size > 200) this.lastDur.delete(sid);
   }

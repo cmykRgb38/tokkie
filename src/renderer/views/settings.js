@@ -34,7 +34,7 @@ export function settingsView(root, api) {
   const layout = mkSeg([['dock', 'Dock'], ['pills', 'Pills'], ['pet', 'Pet only']], 'layout');
   const DOCK_ITEMS = [['usage', 'Usage %', 'Your main limit, live (≈ = estimated since Claude’s last reading).'], ['pace', 'Pace', 'Ahead of or behind the clock, and when you’d run out.'],
     ['status', 'Status', 'Working / done / idle.'], ['next', 'Next prompt', 'Shows up when a long chat or an expired cache makes your next prompt pricey, with what a new chat would cost.'], ['tokens', 'Tokens today', 'Claude Code + Cowork.'], ['lastPrompt', 'Last prompt cost', 'Exact $ of your last Claude Code prompt (needs the bridge).'],
-    ['context', 'Context', 'How full the current conversation is.'], ['cache', 'Cache timer', 'Minutes left on the prompt cache — reply before it expires to save tokens.'], ['agents', 'Agents', 'Sub-agents running (needs the bridge).']];
+    ['context', 'Context', 'How full the current conversation is.'], ['cache', 'Cache timer', 'Minutes left on the prompt cache — reply before it expires to save tokens.'], ['agents', 'Agents', 'Sub-agents running (needs the bridge).'], ['codex', 'Codex', 'Your Codex limit, exactly as Codex reports it (shows when Codex is found).']];
   const dockToggles = DOCK_ITEMS.map(([k, l, d]) => {
     const sw = el('button', { class: 'switch', type: 'button', role: 'switch', 'aria-label': l, 'aria-checked': 'false' });
     // the same items drive the Dock and the Pills; each layout remembers its own picks
@@ -98,6 +98,15 @@ export function settingsView(root, api) {
   const optHotRow = el('div', { class: 'field' },
     el('div', { class: 'field-head' }, el('div', { class: 'ftext' }, el('div', { class: 't', text: 'Optimize shortcut' }), el('div', { class: 'd', text: 'For Chat and Cowork: copy your prompt, press this, then paste. The better version replaces it on your clipboard.' })), optHot.btn),
     optHotStatus, optHot.msg);
+  // Sources: which AIs Tokkie tracks, each with what it can see right now
+  const srcRow = (id, name) => {
+    const sw = el('button', { class: 'switch', type: 'button', role: 'switch', 'aria-label': `Track ${name}`, 'aria-checked': 'true' });
+    sw.addEventListener('click', () => api.setSettings({ providers: { [id]: sw.getAttribute('aria-checked') !== 'true' } }));
+    const d = el('div', { class: 'd' });
+    const row = el('div', { class: 'field inline' }, el('div', { class: 'ftext' }, el('div', { class: 't' }, el('span', { class: 'pdot', 'data-p': id, 'aria-hidden': 'true' }), ' ', name), d), sw);
+    return { sw, d, row };
+  };
+  const srcClaude = srcRow('claude', 'Claude'), srcCodex = srcRow('codex', 'Codex');
   const stripT = toggle('Floating strip', 'A slim bar with the same items, tips and Optimize. Drag it just above Chat’s or Cowork’s prompt box; it stays there.', 'strip', api);
 
   const clip = toggle('Watch clipboard', 'Estimate automatically whenever you copy a long prompt.', 'clipboardWatch', api);
@@ -122,6 +131,7 @@ export function settingsView(root, api) {
     el('div', { class: 'field-head' }, el('div', { class: 'ftext' }, el('div', { class: 't', text: 'Shortcut' }), el('div', { class: 'd', text: 'Copy a prompt, then press this anywhere to estimate it. Click to record a new one.' })), hotBtn),
     hotStatus, hotMsg);
   root.append(el('div', { class: 'settings' },
+    group('Sources', srcClaude.row, srcCodex.row),
     group('Claude Code', bridgeRow, spendRow, dayRow),
     group('Prompt optimizer', optRow, optModeRow, optBtnT.row, optHotRow),
     group('On your desktop', layoutRow, dockBox, stripT.row),
@@ -170,6 +180,12 @@ export function settingsView(root, api) {
       optHotStatus.textContent = ok2 ? '● Active' : '● Not active — another app is using it. Record a different one.';
       optHotStatus.style.color = ok2 ? 'var(--good)' : 'var(--bad)';
       stripT.sw.setAttribute('aria-checked', String(!!st.strip));
+      { const pv = st.providers || {}, cx = (s.providers && s.providers.codex) || {};
+        srcClaude.sw.setAttribute('aria-checked', String(pv.claude !== false)); srcCodex.sw.setAttribute('aria-checked', String(pv.codex !== false));
+        srcClaude.d.textContent = 'Claude Code and Cowork runs, plus your plan % from the Claude app' + (s.bridge && s.bridge.seen ? ', and exact cost from the bridge.' : '.');
+        srcCodex.d.textContent = pv.codex === false ? 'Off.' : !cx.available ? 'Not found on this computer. Install the ChatGPT desktop app or the Codex CLI and use Codex once.'
+          : cx.limits ? `Found: runs and tokens from Codex, and exact limits (${cx.limits.plan ? cx.limits.plan + ' plan' : 'your plan'}). Codex’s login is never read.`
+          : cx.limitsError === 'no-cli' ? 'Found: runs and tokens. Limits need the ChatGPT desktop app or the Codex CLI.' : 'Found: runs and tokens. Asking Codex for your limits…'; }
       const hk = s.hotkey, ok = !hk || hk.ok, fresh = hk && hk.firedAt && Date.now() - hk.firedAt < 15000;
       hotStatus.textContent = !ok ? '● Not active — another app is using it. Record a different one.'
         : fresh ? '✓ Received! The shortcut works.' : hk && hk.firedAt ? `● Active · last used ${fmtDur((Date.now() - hk.firedAt) / 1000)} ago` : '● Active — press it now to test';

@@ -315,7 +315,7 @@ function setupIpc() {
   ipcMain.handle('settings:set', (_e, patch) => {
     const out = { ok: true };
     if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, error: 'bad request' };
-    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton', 'optimizerMode', 'optimizeHotkey', 'strip', 'stripPos'];
+    const allowed = ['finishBy', 'bufferMin', 'hotkey', 'clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'scale', 'fallbackBudget5h', 'monsters', 'window', 'onboarded', 'theme', 'notifyDone', 'alertBubble', 'speechBubble', 'evolution', 'spendLimitUsd', 'resetDay', 'layout', 'dock', 'personality', 'dockPlace', 'pills', 'optimizerModel', 'optimizeButton', 'optimizerMode', 'optimizeHotkey', 'strip', 'stripPos', 'providers'];
     const clean = {};
     for (const k of allowed) if (Object.prototype.hasOwnProperty.call(patch, k)) clean[k] = patch[k];
     const bool = ['clipboardWatch', 'launchAtLogin', 'alwaysOnTop', 'onboarded', 'notifyDone', 'alertBubble', 'speechBubble', 'strip'];
@@ -350,6 +350,7 @@ function setupIpc() {
       const prev = settings.get('optimizeHotkey');
       if (!registerOptKey(clean.optimizeHotkey)) { registerOptKey(prev); delete clean.optimizeHotkey; out.ok = false; out.error = 'That shortcut is taken or invalid.'; }
     }
+    if ('providers' in clean) { const v = clean.providers || {}, cur = settings.get('providers') || {}; clean.providers = { ...cur }; for (const k of ['claude', 'codex']) if (typeof v[k] === 'boolean') clean.providers[k] = v[k]; }
     if ('stripPos' in clean) { const p = clean.stripPos || {}; clean.stripPos = Number.isFinite(p.x) && Number.isFinite(p.y) ? { x: Math.round(p.x), y: Math.round(p.y) } : { x: null, y: null }; }
     if ('monsters' in clean) { const m = clean.monsters; clean.monsters = { active: String(m.active || SIGNATURE).slice(0, 80), saved: (m.saved || []).map((x) => String(x).slice(0, 80)).slice(0, 12), hideOwn: !!m.hideOwn }; }
     if ('bufferMin' in clean) clean.bufferMin = Math.max(0, Math.min(120, Number(clean.bufferMin) || 0));

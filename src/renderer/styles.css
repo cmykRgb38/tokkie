@@ -406,3 +406,25 @@ button.form:hover:not([aria-pressed="true"]) { background: var(--bg-raised); col
 .bh-try { flex: none; height: 24px; }
 .bh-temper { margin-top: 8px; }
 @media (max-width: 420px) { .bh-row { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+
+/* AIs: each has its own colour dot, used everywhere it's named (never logos) */
+:root { --prov-claude: oklch(0.70 0.14 45); --prov-codex: oklch(0.68 0.07 250); }
+:root[data-theme="light"] { --prov-claude: oklch(0.58 0.15 45); --prov-codex: oklch(0.52 0.08 250); }
+.pdot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--ink-3); display: inline-block; }
+.pdot[data-p="claude"] { background: var(--prov-claude); } .pdot[data-p="codex"] { background: var(--prov-codex); }
+.prov-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.prov-chips[hidden] { display: none; }
+.prov-chip { all: unset; display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 999px; background: var(--bg-raised); border: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; }
+.prov-chip:hover { border-color: var(--line-strong); }
+.prov-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prov-chip .pv { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.prov-chip[data-k="warn"] .pv { color: var(--warn); } .prov-chip[data-k="bad"] .pv { color: var(--bad); }
+.prov-head { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 650; }
+.prov-head[hidden] { display: none; }
+.prov-head .muted { font-size: 12px; font-weight: 500; margin-left: auto; }
+.prov-sec { scroll-margin-top: 8px; }
+.prov-sec + .prov-sec { padding-top: 14px; border-top: 1px solid var(--line); }
+.run .ptag { display: inline-flex; align-items: center; gap: 5px; }
+.seg.who { justify-self: start; }
+.seg.who[hidden] { display: none; }
+.seg.who button { display: inline-flex; align-items: center; gap: 6px; }

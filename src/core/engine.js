@@ -7,6 +7,7 @@ const { Store } = require('./store');
 const { Tailer } = require('./tailer');
 const { tokkieHome } = require('./paths');
 const { transcriptSources } = require('./providers');
+const { CodexReader, CodexLimits, findCodexBin } = require('./codex');
 const { readLimits, compute } = require('./limits');
 const { predict, planVerdict, finishTimestamp, PREV_WINDOW_MS } = require('./predict');
 const { estimateTokens } = require('./tokens');
@@ -71,7 +72,40 @@ class Engine extends EventEmitter {
     this.loaded = false;
     // every AI switched on in Settings → Sources (all by default)
     this.tailer = new Tailer({ roots: roots || (() => transcriptSources({ env, home }, (id) => (settings.get('providers') || {})[id] !== false)), onEvents: (evs) => this._onLive(evs), now });
+    // Codex (OpenAI): its own reader (SQLite) and exact limits from Codex's app-server; switch off in Settings → Sources
+    this.codex = new CodexReader({ env, home, now });
+    this.codexLimits = null; this._codexAt = 0;
     this.dirty = true;
+  }
+  codexOn() { return (this.settings.get('providers') || {}).codex !== false; }
+  /** Claude's own runs: what Claude predictions learn from (Codex runs behave differently). */
+  claudeSamples() {
+    if (this._csKey !== this.store.samples.length + ':' + this.store.version) { this._csKey = this.store.samples.length + ':' + this.store.version; this._cs = this.store.samples.filter((x) => (x.provider || 'claude') === 'claude'); }
+    return this._cs;
+  }
+  /** Exact Codex limits run only while Codex is switched on (and never in tests). */
+  _codexLimitsLifecycle() {
+    const want = this.codexOn() && !this.env.TOKKIE_E2E;
+    if (!want && this.codexLimits) { this.codexLimits.stop(); this.codexLimits = null; }
+    if (want && !this.codexLimits && !this._noCodexBin) {
+      const bin = findCodexBin({ env: this.env, home: this.home });
+      if (!bin) { this._noCodexBin = true; return; }
+      this.codexLimits = new CodexLimits({ bin, now: this.now, onChange: () => { this.store.version++; this.emit('change'); } });
+      this.codexLimits.start();
+    }
+  }
+  /** New Codex turns become runs (History, Recent runs, the pet); throttled to every 4 s. */
+  _pollCodex(force = false) {
+    if (this.loaded) this._codexLimitsLifecycle();
+    if (!this.codexOn()) { this.codex.active = null; return; }
+    const now = this.now(); if (!force && now - this._codexAt < 4000) return; this._codexAt = now;
+    let added = 0;
+    // the first look goes back as far as History keeps (90 days); after that, only what's new
+    for (const s of this.codex.poll(this.codex.since ? undefined : 90 * 86400e3)) if (this.store.addSample(s)) { added++; if (this.loaded) this.emit('turn-end', { duration: s.duration, tokens: s.tokens, provider: 'codex' }); }
+    if (added) { this.store.version++; this._persistSamples(); }
+    // the pet eats Codex tokens from the day Tokkie first saw Codex (not all of its history at once)
+    const ev = this.settings.get('evolution');
+    if (!ev.codexStart && this.codex.available()) this.settings.set({ evolution: { ...ev, codexStart: now } });
   }
 
   async start() {
@@ -83,12 +117,19 @@ class Engine extends EventEmitter {
     // Feeding starts the first time Tokkie runs; older messages are never counted.
     const ev0 = this.settings.get('evolution');
     if (!ev0.start) this.settings.set({ evolution: { ...ev0, start: this.now() } });
+    // First run with the "banked up to" mark: anything already past the 8-day window was banked by earlier versions
+    // (several times, sadly), so start the mark there instead of feeding the pet those old messages once more.
+    if (!this.settings.get('evolution').bankedTo) this.settings.set({ evolution: { ...this.settings.get('evolution'), bankedTo: this.now() - 8 * 86400e3 } });
+    // Bank a forgotten message's tokens for the pet exactly once. Each launch re-reads long-running chats in full, so
+    // the same old messages come back and are forgotten again: only those newer than the "banked up to" mark count.
     this.store.onPrune = (m) => {
       const ev = this.settings.get('evolution');
-      if (m.ts >= ev.start) this.settings.set({ evolution: { ...ev, archived: ev.archived + m.input + m.output + m.cacheWrite } });
+      if (m.ts < ev.start || m.ts <= (ev.bankedTo || 0)) return;
+      this.settings.set({ evolution: { ...ev, archived: ev.archived + m.input + m.output + m.cacheWrite, bankedTo: m.ts } });
     };
     const evs = await this.tailer.initialScan();
     for (const e of evs) this.store.ingest(e);
+    this._pollCodex(true);
     this.store.prune();
     this.loaded = true;
     this._readLimits();
@@ -98,11 +139,12 @@ class Engine extends EventEmitter {
     this._persistSamples();
     this.store.onSample = (s) => { this._attachEstimate(s); this._persistSamples(); this.emit('turn-end', { duration: s.duration, tokens: s.tokens }); };
     this.tailer.start();
-    this.tick = setInterval(() => { this._readLimits(); this._readBridge(); this._readDesktop(); this.store.prune(); }, 2000);
+    this._codexLimitsLifecycle();
+    this.tick = setInterval(() => { this._readLimits(); this._readBridge(); this._readDesktop(); this._pollCodex(); this.store.prune(); }, 2000);
     this.tick.unref?.();
     this.emit('change');
   }
-  stop() { this.tailer.stop(); clearInterval(this.tick); this.ledger.flush(); this.runLog.save(this.store.samples); this.settings.save(); }
+  stop() { this.tailer.stop(); clearInterval(this.tick); if (this.codexLimits) this.codexLimits.stop(); this.ledger.flush(); this.runLog.save(this.store.samples); this.settings.save(); }
 
   _onLive(evs) {
     for (const e of evs) this.store.ingest(e);
@@ -221,6 +263,8 @@ class Engine extends EventEmitter {
     const { start, archived } = this.settings.get('evolution');
     let sum = archived || 0;
     for (const m of this.store.msgs.values()) if (m.ts >= start) sum += m.input + m.output + m.cacheWrite;
+    const cs = this.settings.get('evolution').codexStart;
+    if (cs) for (const x of this.store.samples) if (x.provider === 'codex' && x.start >= cs) sum += x.headline || 0;
     return sum;
   }
 
@@ -234,7 +278,15 @@ class Engine extends EventEmitter {
       return t ? t.usd : null;
     };
     return this.store.samples.slice(-n).reverse().map((s) => ({ start: s.start, chars: s.chars, duration: s.duration, headline: s.headline || 0, tokens: s.tokens, est: s.est || null, usd: usdFor(s),
-      sessionId: s.sessionId, preview: s.preview || '', find: s.find || '', cwd: s.cwd || '', source: s.source || '', uuid: s.uuid || '', hasText: !!(s.file && s.uuid) }));
+      sessionId: s.sessionId, provider: s.provider || 'claude', model: s.model || '', estimatedTokens: !!s.estimatedTokens, preview: s.preview || '', find: s.find || '', cwd: s.cwd || '', source: s.source || '', uuid: s.uuid || '', hasText: !!(s.file && s.uuid) }));
+  }
+
+  /** What the Usage tab shows for Codex: found or not, its exact limits, today's runs. */
+  _codexView(now) {
+    const on = this.codexOn(), available = this.codex.available(), L = this.codexLimits;
+    const day = startOfDay(now), runs = on ? this.store.samples.filter((x) => x.provider === 'codex' && x.start >= day) : [];
+    return { on, available, bin: !!L, limits: L ? L.latest : null, limitsError: L ? L.error : (available && on && this._noCodexBin ? 'no-cli' : null), active: !!(on && this.codex.active),
+      today: { runs: runs.length, tokens: runs.reduce((a, x) => a + (x.headline || 0), 0) } };
   }
 
   snapshot(now = this.now()) {
@@ -250,7 +302,7 @@ class Engine extends EventEmitter {
     const lim = this.limitsView(now);
     const budget = this.settings.get('fallbackBudget5h') || 0;
     const fallback = !lim.connected && budget > 0 ? { budget, usedPct: Math.min(100, (t.last5h.weighted / budget) * 100) } : null;
-    const active = this.store.activeTurn(now);
+    const active = this.store.activeTurn(now) || (this.codexOn() && this.codex.active) || null;
     if (now - this.calibAt > 600e3) this._calibrate();
     const live = (id, reading) => this._live(id, reading, now);
     const meters = buildMeters({ statusline: lim, desktop: this._mergedDesktop(), fallback, now, live });
@@ -266,15 +318,15 @@ class Engine extends EventEmitter {
     const ctx = fresh && Number.isFinite(fresh.context.tokens) && (!cache || fresh.sessionId === cache.sessionId)
       ? { tokens: fresh.context.tokens, window: fresh.context.window || null, percent: Number.isFinite(fresh.context.percent) ? fresh.context.percent : null, exact: true }
       : cache ? { tokens: cache.ctxTokens, window: null, percent: null, exact: false } : null;
-    const recent = this.store.samples.slice(-20).map((x) => x.tokens).filter((x) => x > 0).sort((a, b) => a - b);
+    const recent = this.claudeSamples().slice(-20).map((x) => x.tokens).filter((x) => x > 0).sort((a, b) => a - b);
     const typical = recent.length >= 3 ? { p50: recent[Math.floor(recent.length / 2)], p75: recent[Math.floor(recent.length * 0.75)] } : null;
     const nextFit = typical ? this._fit(typical, meters, now) : null;
     // A typical prompt in the chat you were just in: what that chat's size (and a cold cache) adds — for the Dock, bar and strip.
     // ...and the same for each chat active lately, so the Claude bar in a chat shows that chat, not the newest one.
     let nextRun = null; const chats = {};
     if (cache && cache.ctxTokens > 0) {
-      const chars = this.store.samples.slice(-40).map((x) => x.chars).sort((a, b) => a - b);
-      const typicalPred = predict(this.store.samples, '', chars.length ? chars[Math.floor(chars.length / 2)] : 200);
+      const chars = this.claudeSamples().slice(-40).map((x) => x.chars).sort((a, b) => a - b);
+      const typicalPred = predict(this.claudeSamples(), '', chars.length ? chars[Math.floor(chars.length / 2)] : 200);
       const rate = this._usdRate();
       for (const id of this.store.recentChats(now)) {
         const run = this._chatRun(typicalPred, now, this.store.cacheFor(id, now));
@@ -286,10 +338,12 @@ class Engine extends EventEmitter {
     }
     const turns = this.bridge.allTurns();
     const lastPrompt = turns.length ? turns[turns.length - 1] : null;
-    const eta = active ? predict(this.store.samples, '', active.chars, { prev: active.prev || 0, hint: active.hint }).duration : null;
+    const eta = active ? predict((active.provider === 'codex' ? this.store.samples.filter((x) => x.provider === 'codex') : this.claudeSamples()), '', active.chars || 200, { prev: active.prev || 0, hint: active.hint }).duration : null;
     return {
       now, loaded: this.loaded, eta,
-      active, activeCount: this.store.activeCount(now), lastTurnEnd: this.store.lastTurnEnd, lastTurn: { end: this.store.recent.end, dur: this.store.recent.dur }, lastEvent: this.store.lastEvent,
+      active, activeCount: this.store.activeCount(now) + (this.codex.active ? 1 : 0), lastTurnEnd: Math.max(this.store.lastTurnEnd || 0, this.codexOn() ? this.codex.lastTurnEnd : 0), lastTurn: { end: this.store.recent.end, dur: this.store.recent.dur },
+      lastEvent: Math.max(this.store.lastEvent, this.codexOn() ? Math.max(this.codex.lastTurnEnd, this.codex.active ? now : 0) : 0),
+      providers: { claude: { on: true }, codex: this._codexView(now) },
       tokens: { today: t.today.headline, last5h: t.last5h.headline, week: t.week.headline, burn: t.burn, weightedLast5h: t.last5h.weighted },
       spark: t.spark,
       limits: lim, fallback, block: t.block,
@@ -376,7 +430,7 @@ class Engine extends EventEmitter {
   /** The planner: tokens, duration range, share of the limit, and the go/no-go verdict. */
   /** $ per weighted token, from your own Claude Code runs with an exact cost (needs 3+). Weighted = cache reads at 10%. */
   _usdRate() {
-    const r = this.store.samples.slice(-120).filter((x) => Number.isFinite(x.usd) && x.usd > 0 && x.tokens > 0).map((x) => x.usd / x.tokens).sort((a, b) => a - b);
+    const r = this.claudeSamples().slice(-120).filter((x) => Number.isFinite(x.usd) && x.usd > 0 && x.tokens > 0).map((x) => x.usd / x.tokens).sort((a, b) => a - b);
     return r.length >= 3 ? { perToken: r[Math.floor(r.length / 2)], n: r.length } : null;
   }
 
@@ -409,7 +463,7 @@ class Engine extends EventEmitter {
     text = String(text || '');
     const chars = text.length;
     const r = this.store.recent;
-    const pred = predict(this.store.samples, text, chars, { prev: now - r.end < PREV_WINDOW_MS ? r.dur : 0 });
+    const pred = predict(this.claudeSamples(), text, chars, { prev: now - r.end < PREV_WINDOW_MS ? r.dur : 0 });
     const finishBy = finishTimestamp(this.settings.get('finishBy'), now);
     const plan = planVerdict(pred, now, finishBy, this.settings.get('bufferMin'));
     this._remember(chars, pred, now);

@@ -16,6 +16,7 @@ const PATHS = {
   alert: '<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2h0"/>',
   sparkle: '<path d="M10 3l1.6 4.4L16 9l-4.4 1.6L10 15l-1.6-4.4L4 9l4.4-1.6z"/><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/>',
   open: '<path d="M6 15l6-6 6 6"/>',
+  codex: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M9 10l-2 2 2 2M15 10l2 2-2 2"/>',
 };
 const svg = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${PATHS[k] || PATHS.status}</svg>`;
 const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

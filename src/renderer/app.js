@@ -1,4 +1,4 @@
-import { $, clamp, fmtDur, fmtClockDur, fmtTokens, fmtRange, fmtRunOut, fmtRunOutShort, chatAdvice } from './util.js';
+import { $, clamp, fmtPct, fmtDur, fmtClockDur, fmtTokens, fmtRange, fmtRunOut, fmtRunOutShort, chatAdvice } from './util.js';
 import { Pet, EMOTES, PERSONALITY, SCENE_W } from './pet.js';
 const M_CX = window.TokkieMonster.CX;
 import { usageView, kindUsed } from './views/usage.js';
@@ -215,6 +215,13 @@ function dockLines(S, d, on = S.settings.dock || {}) {
       out.push({ k: 'cache', label: 'Cache', value: v, pill: `cache ${v}`, tone: left <= 0 ? 'bad' : left < 5 * 60e3 ? 'warn' : '', title: left > 0 ? 'Reply before this runs out and the conversation is re-read cheaply from cache' : 'The cache expired — the next message re-sends the whole conversation at full price' });
     }
   }
+  // Codex: its tightest limit window, exactly as Codex reports it
+  const cx = S.providers && S.providers.codex;
+  if (on.codex !== false && cx && cx.on && cx.available && cx.limits && cx.limits.windows.length) {
+    const w = cx.limits.windows.reduce((a, b) => (b.pct > a.pct ? b : a));
+    out.push({ k: 'codex', label: 'Codex', value: `${fmtPct(w.pct)}% ${w.label.toLowerCase()}`, pill: `Codex ${fmtPct(w.pct)}%`, tone: kindUsed(w.pct), dot: cx.active ? 'live' : kindUsed(w.pct),
+      title: `Codex ${w.label} limit: ${fmtPct(w.pct)}% used${w.resetsAt ? `, resets ${fmtRunOut(w.resetsAt, now)}` : ''}${cx.active ? '. Codex is working now' : ''}. Exact, from Codex` });
+  }
   if (on.agents !== false && S.agents > 0) out.push({ k: 'agents', label: 'Agents', value: `${S.agents} running`, pill: `${S.agents} agent${S.agents === 1 ? '' : 's'}`, dot: 'live', title: 'Sub-agents working right now' });
   return out;
 }
@@ -273,7 +280,7 @@ function checkFit(S) {
   lastNextFit = st;
 }
 // What each chip is, in plain words — shown when you hover it in the Claude bar.
-const BAR_LABEL = { usage: 'Plan usage', pace: 'Pace', status: 'Claude', next: 'Next prompt', tokens: 'Today', lastPrompt: 'Last prompt', context: 'Conversation size', cache: 'Prompt cache', agents: 'Sub-agents' };
+const BAR_LABEL = { usage: 'Plan usage', pace: 'Pace', status: 'Claude', next: 'Next prompt', codex: 'Codex', tokens: 'Today', lastPrompt: 'Last prompt', context: 'Conversation size', cache: 'Prompt cache', agents: 'Sub-agents' };
 function barTip(l) {
   // the card's title already shows "Label: reading"; the body only says what it means
   const t = (l.title || '').trim();
@@ -313,6 +320,7 @@ function shortValue(l) {
     case 'pace': return /^out /.test(v) ? v.slice(4) : v.replace(/ (fast|under)$/, '');
     case 'status': return v.split(' ')[0];                                        // Done 1m → Done
     case 'context': return v.split(' / ')[0];
+    case 'codex': return v.split(' ')[0];
     default: return v;
   }
 }
@@ -321,7 +329,7 @@ function barItems(S, lines) {
   const out = [];
   const fit = fitAlert && Date.now() < fitAlert.until ? `${fitAlert.title}: ${fitAlert.sub}.` : S.nextFit && S.nextFit.status !== 'ok' ? `${S.nextFit.status === 'no' ? 'Not enough left for a typical prompt' : 'Running low'}: ${fitWords(S.nextFit).line}.` : '';
   if (fit) out.push({ k: 'alert', label: 'Heads-up', value: fit.replace(/\.$/, ''), short: '', tone: 'bad', tip: '' });
-  for (const l of lines) out.push(barItem(l));
+  for (const l of lines) if (l.k !== 'codex') out.push(barItem(l));          // the Claude bar is Claude's
   return out;
 }
 /** One chat's own items, in the Dock's format (so they read the same everywhere). */

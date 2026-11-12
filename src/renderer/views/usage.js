@@ -54,6 +54,31 @@ function meterNode(title, id, api) {
   };
 }
 
+/** Codex's limits, exactly as Codex reports them (no syncing needed): one bar per window, named by its length. */
+function codexWindowNode() {
+  const val = el('span', { class: 'left' }), fill = el('i'), lab = el('span', { class: 'label' });
+  const bar = el('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100 }, fill), foot = el('div', { class: 'foot' });
+  const root = el('div', { class: 'meter' }, el('div', { class: 'top' }, lab, val), bar, foot);
+  return { root, set(w, now) {
+    lab.textContent = w.label; val.textContent = `${fmtPct(w.pct)}% used`; bar.setAttribute('aria-label', `Codex ${w.label}`);
+    fill.style.setProperty('--p', String(clamp(w.pct, 0, 100) / 100)); bar.dataset.k = kindUsed(w.pct); bar.setAttribute('aria-valuenow', Math.round(w.pct));
+    const parts = [];
+    if (w.resetsAt && w.mins) {                              // pace: how much of the window has gone vs how much is used
+      const elapsed = clamp(1 - (w.resetsAt - now) / (w.mins * 60e3), 0, 1) * 100;
+      if (elapsed > 2 && w.pct > 0) {
+        const rate = w.pct / elapsed;                                          // >1: using faster than the clock
+        const usedMs = (w.mins * 60e3) * elapsed / 100, perMs = w.pct / Math.max(1, usedMs);
+        const outAt = rate > 1 ? now + (100 - w.pct) / perMs : null;            // when 100% is reached at this rate
+        const k = rate > 1.25 ? 'alert' : rate > 1 ? 'fast' : 'ok';
+        parts.push(el('span', { class: 'pace', 'data-k': k, text: outAt && outAt < w.resetsAt ? `At this pace you run out ${fmtRunOut(outAt, now)}` : rate > 1 ? `Using ${Math.round((rate - 1) * 100)}% faster than the clock` : 'On pace' }));
+      }
+    }
+    if (w.resetsAt && w.resetsAt > now) parts.push(el('span', { text: `resets in ${fmtDur((w.resetsAt - now) / 1000)}` }));
+    parts.push(el('span', { class: 'prov', text: 'exact, from Codex' }));
+    foot.replaceChildren(...parts);
+  } };
+}
+
 export function usageView(root, api) {
   const welcome = el('div', { class: 'welcome', hidden: true },
     el('strong', { text: 'Hi, I live here now.' }),
@@ -88,7 +113,18 @@ export function usageView(root, api) {
   const sparkWrap = el('div', {}, svg, el('div', { class: 'spark-foot' }, el('span', { text: '60 min ago' }), sparkNote, el('span', { text: 'now' })));
   const foot = el('p', { class: 'muted' });
   const metersBox = el('div', { class: 'stack' });
-  root.append(el('div', { class: 'stack' }, welcome, metersBox, el('div', { class: 'divider' }), stats, sparkWrap, foot));
+  // One section per AI, with chips on top to jump between them (shown once there's more than one).
+  const chip = (id, name) => { const v = el('span', { class: 'pv' }); const b = el('button', { class: 'prov-chip', type: 'button', 'data-p': id, onclick: () => sections[id].scrollIntoView({ behavior: 'smooth', block: 'start' }) }, el('span', { class: 'pdot', 'data-p': id }), el('span', { text: name }), v); b.v = v; return b; };
+  const chips = { claude: chip('claude', 'Claude'), codex: chip('codex', 'Codex') };
+  const chipRow = el('div', { class: 'prov-chips', role: 'navigation', 'aria-label': 'AIs Tokkie is tracking', hidden: true }, chips.claude, chips.codex);
+  const head = (id, name) => { const sub = el('span', { class: 'muted' }); const h = el('div', { class: 'prov-head' }, el('span', { class: 'pdot', 'data-p': id }), el('span', { class: 'pname', text: name }), sub); h.sub = sub; return h; };
+  const claudeHead = head('claude', 'Claude'), codexHead = head('codex', 'Codex');
+  const codexMeters = el('div', { class: 'stack' }), codexFoot = el('p', { class: 'muted' }), codexNodes = [];
+  const sections = {
+    claude: el('section', { class: 'stack prov-sec', 'data-p': 'claude' }, claudeHead, metersBox, el('div', { class: 'divider' }), stats, sparkWrap, foot),
+    codex: el('section', { class: 'stack prov-sec', 'data-p': 'codex', hidden: true }, codexHead, codexMeters, codexFoot),
+  };
+  root.append(el('div', { class: 'stack' }, welcome, chipRow, sections.claude, sections.codex));
 
   let lastIds = '';
   return {
@@ -120,6 +156,22 @@ export function usageView(root, api) {
       line.setAttribute('d', d); area.setAttribute('d', `${d} L${W} ${H} L0 ${H} Z`);
       sparkNote.textContent = max > 1 ? `peak ${fmtTokens(max)}/min` : 'quiet hour';
       svg.setAttribute('aria-label', `Token activity over the last hour. ${sparkNote.textContent}.`);
+      // Codex: shown once it's found and switched on
+      const cx = S.providers && S.providers.codex, showCodex = !!(cx && cx.on && cx.available);
+      sections.codex.hidden = !showCodex; chipRow.hidden = !showCodex; claudeHead.hidden = !showCodex;
+      if (showCodex) {
+        const ws = (cx.limits && cx.limits.windows) || [];
+        while (codexNodes.length < ws.length) codexNodes.push(codexWindowNode());
+        ws.forEach((w, i) => codexNodes[i].set(w, now));
+        const want = codexNodes.slice(0, ws.length).map((n) => n.root);
+        if (codexMeters.childElementCount !== want.length || want.some((n, i) => codexMeters.children[i] !== n)) codexMeters.replaceChildren(...(want.length ? want : [el('p', { class: 'muted', text: cx.limitsError === 'no-cli' ? 'Limits need the ChatGPT desktop app or the Codex CLI on this computer. Runs and tokens still show in History.' : 'Asking Codex for your limits…' })]));
+        codexHead.sub.textContent = [cx.limits && cx.limits.plan ? cx.limits.plan.charAt(0).toUpperCase() + cx.limits.plan.slice(1) : '', cx.active ? 'working now' : ''].filter(Boolean).join(' · ');
+        codexFoot.textContent = `Today: ${cx.today.runs} run${cx.today.runs === 1 ? '' : 's'} · ${fmtTokens(cx.today.tokens)} tokens. Read from Codex on this computer; its login is never touched.`;
+        const top = (m) => (m ? `${fmtPct(m.pct)}%` : '–');
+        chips.claude.v.textContent = top(meters[0]); chips.codex.v.textContent = top(ws[0]);
+        chips.claude.dataset.k = meters[0] ? kindUsed(meters[0].pct) : ''; chips.codex.dataset.k = ws[0] ? kindUsed(ws[0].pct) : '';
+        claudeHead.sub.textContent = S.active && S.active.provider !== 'codex' ? 'working now' : '';
+      }
       foot.textContent = S.files ? `Percentages come from Claude itself and include Chat. Token counts cover Claude Code + Cowork (${S.files} logs).` : 'No Claude sessions found yet — start one and I’ll pick it up.';
     },
   };

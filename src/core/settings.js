@@ -26,9 +26,9 @@ const DEFAULTS = Object.freeze({
   resetDay: 1,               // the day of the month that limit resets (UTC)
   spend: {},                 // exact Claude Code dollars from the bridge (ledger)
   layout: 'dock',            // dock | pills | pet
-  dock: { usage: true, pace: true, status: true, next: true, tokens: true, context: true, cache: true, lastPrompt: true, agents: true },
+  dock: { usage: true, pace: true, status: true, next: true, codex: true, tokens: true, context: true, cache: true, lastPrompt: true, agents: true },
   dockPlace: 'below',        // below | above the pet, or 'claude' = a bar above Claude Code's prompt (drawn by the bridge)
-  pills: { usage: true, pace: false, status: false, next: false, tokens: true, context: false, cache: false, lastPrompt: false, agents: false },
+  pills: { usage: true, pace: false, status: false, next: false, codex: true, tokens: true, context: false, cache: false, lastPrompt: false, agents: false },
   optimizerModel: 'haiku',   // haiku | sonnet | opus — what the prompt optimizer asks
   optimizerMode: 'clearer',  // clearer (adds what Claude would guess) | shorter (same meaning, fewest tokens)
   optimizeButton: true,      // ✨ Optimize on the Claude bar (rewrites what you typed, in place)
@@ -37,7 +37,7 @@ const DEFAULTS = Object.freeze({
   strip: false,              // the floating strip: the Claude bar's items for Chat / Cowork, dragged wherever you like
   stripPos: { x: null, y: null },
   personality: 'cheerful',   // cheerful | playful | sleepy | grumpy | shy
-  evolution: { start: 0, archived: 0, stageSeen: 1, display: 0 },   // growth bookkeeping: when feeding began, tokens already pruned, last form celebrated, form shown (0 = newest)
+  evolution: { start: 0, archived: 0, stageSeen: 1, display: 0, codexStart: 0, bankedTo: 0 },   // growth bookkeeping: when feeding began, tokens already pruned, last form celebrated, form shown (0 = newest)
   onboarded: false,
 });
 

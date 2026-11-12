@@ -202,3 +202,31 @@ test('runs record the chat size at Enter, whether its cache was cold, and the st
   const s = st.samples[st.samples.length - 1];
   assert.equal(s.steps, 2); assert.equal(s.cold, false); assert.ok(s.ctx0 >= 300_000); assert.equal(s.cacheRead, 600_000);
 });
+
+test('the pet banks a forgotten message once: relaunching (which re-reads long chats) never feeds it the same tokens again', async () => {
+  const { dir, proj, env, settings } = rig();
+  const now = Date.now(), old = new Date(now - 10 * 86400e3).toISOString(), fresh = new Date(now - 60e3).toISOString();
+  settings.set({ evolution: { ...settings.get('evolution'), start: now - 30 * 86400e3, bankedTo: now - 20 * 86400e3 } });   // an existing pet: banked up to 20 days ago
+  const line = (ts, id, out) => JSON.stringify({ type: 'assistant', timestamp: ts, sessionId: 's', message: { id, model: 'm', role: 'assistant', stop_reason: 'end_turn', usage: { input_tokens: 0, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+  fs.writeFileSync(path.join(proj, 'long.jsonl'), line(old, 'm-old', 1000) + '\n' + line(fresh, 'm-new', 50) + '\n');   // a long chat: old and new messages, recently written
+  const { Engine } = require('../src/core/engine');
+  for (let launch = 0; launch < 3; launch++) {
+    const eng = new Engine({ settings, env, home: dir, roots: () => [{ dir: path.join(dir, 'projects'), source: 'code' }], runsFile: path.join(dir, 'runs.json') });
+    await eng.start(); eng.stop();
+  }
+  assert.equal(settings.get('evolution').archived, 1000, 'banked once, not once per launch');
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('upgrading to the banked-up-to mark does not feed the pet old messages one more time', async () => {
+  const { dir, proj, env, settings } = rig();
+  const now = Date.now();
+  settings.set({ evolution: { ...settings.get('evolution'), start: now - 30 * 86400e3, archived: 5000 } });   // an older version's pet (no mark yet)
+  const line = (ts, id, out) => JSON.stringify({ type: 'assistant', timestamp: ts, sessionId: 's', message: { id, model: 'm', role: 'assistant', stop_reason: 'end_turn', usage: { input_tokens: 0, output_tokens: out, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } });
+  fs.writeFileSync(path.join(proj, 'long.jsonl'), line(new Date(now - 10 * 86400e3).toISOString(), 'm-old', 1000) + '\n');
+  const { Engine } = require('../src/core/engine');
+  const eng = new Engine({ settings, env, home: dir, roots: () => [{ dir: path.join(dir, 'projects'), source: 'code' }], runsFile: path.join(dir, 'runs.json') });
+  await eng.start(); eng.stop();
+  assert.equal(settings.get('evolution').archived, 5000, 'old messages were already counted by the older version');
+  fs.rmSync(dir, { recursive: true });
+});

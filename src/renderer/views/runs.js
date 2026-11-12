@@ -54,8 +54,10 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
     const project = r.cwd ? r.cwd.split(/[\\/]/).filter(Boolean).pop() : '';
     const where = r.source === 'cowork' ? 'Cowork' : project;
     // Claude Code runs can be reopened in the Claude app; Cowork has no such link.
-    const canOpen = r.source !== 'cowork' && /^[0-9a-f-]{36}$/i.test(r.sessionId || '');
-    const resumeCmd = canOpen ? `${r.cwd ? `cd "${r.cwd}" && ` : ''}claude --resume ${r.sessionId}` : '';
+    const isCodex = r.provider === 'codex';
+    const canOpen = !isCodex && r.source !== 'cowork' && /^[0-9a-f-]{36}$/i.test(r.sessionId || '');
+    const canResume = canOpen || (isCodex && /^[0-9a-f-]{36}$/i.test(r.sessionId || ''));
+    const resumeCmd = canResume ? `${r.cwd ? `cd "${r.cwd}" && ` : ''}${isCodex ? 'codex resume' : 'claude --resume'} ${r.sessionId}` : '';
     const msg = el('div', { class: 'muted', hidden: true, style: 'color:var(--good)' });
     const note = (t, ms = 4000) => { msg.textContent = t; msg.hidden = false; setTimeout(() => { msg.hidden = true; }, ms); };
     const stop = (fn) => async (e) => { e.stopPropagation(); await fn(); };
@@ -71,7 +73,7 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
         if (!res || !res.ok) note('Couldn’t open Claude — is the desktop app installed?');
         else note(`Opened. To jump to this prompt press ${mac ? '⌘F' : 'Ctrl+F'} then ${mac ? '⌘V' : 'Ctrl+V'} in Claude.`, 9000);
       }) }) : null,
-      canOpen ? el('button', { class: 'btn sm quiet', type: 'button', text: 'Copy resume command', title: resumeCmd, onclick: stop(async () => { await api.copyText(resumeCmd); note('Copied — paste it in a terminal to continue this conversation.'); }) }) : null);
+      canResume ? el('button', { class: 'btn sm quiet', type: 'button', text: 'Copy resume command', title: resumeCmd, onclick: stop(async () => { await api.copyText(resumeCmd); note('Copied — paste it in a terminal to continue this conversation.'); }) }) : null);
     // ✨ Optimize an old prompt: a better version to copy for next time (asks Claude through the bridge)
     const optOut = el('div', { class: 'opt', hidden: !opts.has(id) });
     const drawOpt = () => {
@@ -98,9 +100,10 @@ export function runCards(api, redraw, { when = 'ago' } = {}) {
     }) }, icon('sparkle'), 'Optimize'));
     const detail = el('div', { class: 'rdetail', hidden: !isOpen, onclick: (e) => e.stopPropagation() }, full, actions, optOut, msg);
     const card = el('div', { class: 'run openable', role: 'button', 'aria-expanded': String(isOpen), tabindex: '0', title: isOpen ? '' : 'Click to see the full prompt' },
-      el('div', { class: 'row' }, el('span', { class: 'muted', text: `${when === 'clock' ? fmtTime(r.start) : `${fmtDur((s.now - r.start) / 1000)} ago`}${where ? ` · ${where}` : ''}` }), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
+      el('div', { class: 'row' }, el('span', { class: 'muted ptag' }, el('span', { class: 'pdot', 'data-p': isCodex ? 'codex' : 'claude', 'aria-hidden': 'true' }),
+        `${isCodex ? 'Codex' : 'Claude'} · ${when === 'clock' ? fmtTime(r.start) : `${fmtDur((s.now - r.start) / 1000)} ago`}${where ? ` · ${where}` : ''}`), el('span', { class: 'val', text: `took ${fmtDur(r.duration)}` })),
       r.preview && !isOpen ? el('div', { class: 'rprompt', text: `“${r.preview}${r.chars > 140 ? '…' : ''}”` }) : null,
-      el('div', { class: 'rtok', text: (tok || 'tokens not recorded') + (r.usd != null ? ` · $${r.usd.toFixed(2)}` : '') }),
+      el('div', { class: 'rtok', text: (tok || 'tokens not recorded') + (r.usd != null ? ` · $${r.usd.toFixed(2)}` : ''), title: r.estimatedTokens ? 'Codex only keeps a running total per chat: this run’s share is estimated from how long it ran.' : '' }),
       chips.length ? el('div', { class: 'chips2' }, el('span', { class: 'muted', text: 'estimate:' }), chips) : null,   // only runs you estimated say how it went
       detail);
     const toggle = async () => {
