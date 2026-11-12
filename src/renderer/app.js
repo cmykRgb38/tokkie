@@ -118,7 +118,7 @@ function describe(S) {
 
   if (!chipText) {
     if (now < doneUntil) chipText = 'Done!';
-    else if (S.lastTurnEnd && now - S.lastTurnEnd < 3600e3) chipText = `Done · ${fmtDur((now - S.lastTurnEnd) / 1000)} ago`;
+    else if (S.lastTurnEnd && now - S.lastTurnEnd < 3600e3) chipText = `${S.providers && S.providers.codex && S.providers.codex.available ? (S.lastTurnBy === 'codex' ? 'Codex' : 'Claude') + ' done' : 'Done'} · ${fmtDur((now - S.lastTurnEnd) / 1000)} ago`;
     else chipText = mood === 'sleep' ? 'Sleeping' : 'Idle';
   }
   const d = { mood, text, dot, chipText, chipK, eta };
@@ -411,7 +411,7 @@ function render() {
   } else if (al && mode !== 'expanded') {
     d.mood = al.kind === 'done' ? 'alert' : 'ask';
     bubbleEl.hidden = !showBubble; bubbleEl.dataset.kind = al.kind;
-    if (al.kind === 'done') { bubbleTitle.textContent = 'Done — awaiting your response'; bubbleSub.textContent = `${fmtDur((S.now - al.since) / 1000)} ago · click to dismiss`; }
+    if (al.kind === 'done') { bubbleTitle.textContent = `${S.lastTurnBy === 'codex' ? 'Codex' : 'Claude'} is done — your turn`; bubbleSub.textContent = `${fmtDur((S.now - al.since) / 1000)} ago · click to dismiss`; }
     else { bubbleTitle.textContent = 'May need your approval'; bubbleSub.textContent = `Quiet for ${fmtDur(al.quietMs / 1000)} · click to dismiss`; }
   } else if (fitAlert && Date.now() < fitAlert.until && mode !== 'expanded') {
     // never silenced by the speech-bubble switch: this is the one you asked for

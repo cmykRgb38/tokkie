@@ -342,6 +342,7 @@ class Engine extends EventEmitter {
     return {
       now, loaded: this.loaded, eta,
       active, activeCount: this.store.activeCount(now) + (this.codex.active ? 1 : 0), lastTurnEnd: Math.max(this.store.lastTurnEnd || 0, this.codexOn() ? this.codex.lastTurnEnd : 0), lastTurn: { end: this.store.recent.end, dur: this.store.recent.dur },
+      lastTurnBy: this.codexOn() && (this.codex.lastTurnEnd || 0) > (this.store.lastTurnEnd || 0) ? 'codex' : 'claude',   // which AI finished last
       lastEvent: Math.max(this.store.lastEvent, this.codexOn() ? Math.max(this.codex.lastTurnEnd, this.codex.active ? now : 0) : 0),
       providers: { claude: { on: true }, codex: this._codexView(now) },
       tokens: { today: t.today.headline, last5h: t.last5h.headline, week: t.week.headline, burn: t.burn, weightedLast5h: t.last5h.weighted },

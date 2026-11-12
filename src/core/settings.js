@@ -20,7 +20,7 @@ const DEFAULTS = Object.freeze({
   theme: 'auto',            // auto | light | dark
   notifyDone: true,
   alertBubble: true,         // pet reacts (hop + blinking !/?) when Claude finishes / may need you
-  speechBubble: true,        // ...and also show the "Done — awaiting your response" speech bubble
+  speechBubble: true,        // ...and also show the "Claude is done — your turn" speech bubble
   manualReadings: [],        // percentages you typed in from Claude's Usage page: [{id, t, pct}] — exact anchors + calibration points
   spendLimitUsd: 0,          // your plan's dollar limit (Enterprise / usage-based), typed once in Settings
   resetDay: 1,               // the day of the month that limit resets (UTC)

@@ -111,7 +111,7 @@ export function settingsView(root, api) {
 
   const clip = toggle('Watch clipboard', 'Estimate automatically whenever you copy a long prompt.', 'clipboardWatch', api);
   const alertT = toggle('Pet reacts when Claude needs me', 'It hops and shows a blinking ! when a run finishes or goes quiet.', 'alertBubble', api);
-  const bubbleT = toggle('Show the speech bubble', 'The “Done — awaiting your response” note above the pet.', 'speechBubble', api);
+  const bubbleT = toggle('Show the speech bubble', 'The “Claude is done — your turn” note above the pet (or Codex, whichever finished).', 'speechBubble', api);
   const notify = toggle('Notify when done', 'A quiet alert when a run longer than a minute finishes.', 'notifyDone', api);
   const login = toggle('Launch at login', null, 'launchAtLogin', api);
   const top = toggle('Always on top', null, 'alwaysOnTop', api);

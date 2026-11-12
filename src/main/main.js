@@ -495,10 +495,11 @@ else {
       changeTimer = setTimeout(() => { changeTimer = null; send('state', snapshot()); }, 250);
     });
     let changeTimer = null;
-    engine.on('turn-end', ({ duration }) => {
+    engine.on('turn-end', ({ duration, provider }) => {
       if (!settings.get('notifyDone') || duration < 60 || !Notification.isSupported()) return;
       const m = Math.floor(duration / 60), s = Math.round(duration % 60);
-      const n = new Notification({ title: 'Claude finished', body: `Done after ${m}m ${String(s).padStart(2, '0')}s.`, silent: true });
+      const who = provider === 'codex' ? 'Codex' : 'Claude';   // say which AI finished: people run both at once
+      const n = new Notification({ title: `${who} finished`, body: `Done after ${m}m ${String(s).padStart(2, '0')}s.`, silent: true });
       n.on('click', () => showWindow('usage'));
       n.show();
     });

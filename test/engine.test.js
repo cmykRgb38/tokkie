@@ -230,3 +230,18 @@ test('upgrading to the banked-up-to mark does not feed the pet old messages one 
   assert.equal(settings.get('evolution').archived, 5000, 'old messages were already counted by the older version');
   fs.rmSync(dir, { recursive: true });
 });
+
+test('the snapshot says which AI finished last, so "done" alerts can name it', async () => {
+  const { dir, eng } = rig();
+  await eng.start();
+  const now = Date.now();
+  eng.store.lastTurnEnd = now - 60e3;
+  eng.codex = { lastTurnEnd: now - 5e3, active: null, since: now, available: () => true, poll: () => [] };   // Codex finished after Claude
+  assert.equal(eng._snapshot(now).lastTurnBy, 'codex');
+  eng.codex.lastTurnEnd = now - 120e3;
+  assert.equal(eng._snapshot(now).lastTurnBy, 'claude');
+  eng.settings.set({ providers: { claude: true, codex: false } });   // Codex switched off: never named
+  eng.codex.lastTurnEnd = now;
+  assert.equal(eng._snapshot(now).lastTurnBy, 'claude');
+  eng.stop(); fs.rmSync(dir, { recursive: true });
+});

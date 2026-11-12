@@ -183,7 +183,7 @@ exports.attach = (win, { screen, getPetRect, settings, fireHotkey, clipboard, fi
       const bub = () => js(`(()=>{const b=document.getElementById('bubble');const r=b.getBoundingClientRect();return {hidden:b.hidden,kind:b.dataset.kind,role:b.getAttribute('role'),title:document.getElementById('bubbleTitle').textContent,top:r.top,left:r.left,right:r.right,vw:innerWidth}})()`);
       await js(`window.__tokkie.forceAlert('done')`); await wait(500);
       let b = await bub();
-      ok('"done" alert shows an accessible speech bubble', !b.hidden && b.kind === 'done' && b.role === 'alert' && /awaiting your response/i.test(b.title), JSON.stringify(b));
+      ok('"done" alert shows an accessible speech bubble', !b.hidden && b.kind === 'done' && b.role === 'alert' && /^Claude is done — your turn$/.test(b.title), JSON.stringify(b));
       ok('bubble fits inside the window', b.top >= 0 && b.left >= 0 && b.right <= b.vw, `${Math.round(b.left)}..${Math.round(b.right)} of ${b.vw}`);
       ok('pet reacts to the alert', (await mood(`return p.mood`)) === 'alert');
       await js(`document.getElementById('bubble').click()`); await wait(400); b = await bub();
